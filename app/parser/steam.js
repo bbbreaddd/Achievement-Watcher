@@ -10,7 +10,6 @@ const omit = require('lodash.omit');
 const moment = require('moment');
 const request = require('request-zero');
 const urlParser = require('url');
-const ffs = require('@xan105/fs');
 const { readRegistryStringAndExpand, regKeyExists, readRegistryInteger, readRegistryString, listRegistryAllSubkeys } = require('../util/reg');
 const appPath = path.join(__dirname, '../');
 const steamID = require(path.join(appPath, 'util/steamID.js'));
@@ -328,12 +327,12 @@ module.exports.getAchievementsFromAPI = async (cfg) => {
       steam: 0,
     };
 
-    let local = await ffs.stats(cache.local);
-    if (Object.keys(local).length > 0) {
-      time.local = moment(local.mtime).valueOf();
+    if (fs.existsSync(cache.local)) {
+      let local = fs.statSync(cache.local);
+      if (Object.keys(local).length > 0) time.local = moment(local.mtime).valueOf();
     }
 
-    let steamStats = await ffs.stats(cache.steam);
+    let steamStats = fs.statSync(cache.steam);
     if (Object.keys(steamStats).length > 0) {
       time.steam = moment(steamStats.mtime).valueOf();
     } else {
@@ -376,7 +375,7 @@ const getSteamPath = (module.exports.getSteamPath = async () => {
   for (let regHive of regHives) {
     steamPath = readRegistryString(regHive.root, regHive.key, regHive.name);
     if (steamPath) {
-      if (await ffs.exists(path.join(steamPath, 'steam.exe'))) {
+      if (fs.existsSync(path.join(steamPath, 'steam.exe'))) {
         break;
       }
     }
@@ -431,25 +430,10 @@ const getSteamUsersList = (module.exports.getSteamUsersList = async () => {
   }
 });
 
-function getSteamUserStatsFromSRV(user, appID) {
-  const url = `https://api.xan105.com/steam/user/${user}/stats/${appID}`;
-
-  return new Promise((resolve, reject) => {
-    request
-      .getJson(url)
-      .then((data) => {
-        if (data.error) {
-          return reject(data.error);
-        } else if (data.data) {
-          return resolve(data.data);
-        } else {
-          return reject('Unexpected Error');
-        }
-      })
-      .catch((err) => {
-        return reject(err);
-      });
-  });
+async function getSteamUserStatsFromSRV(user, appID) {
+  const { ipcRenderer } = require('electron');
+  const result = ipcRenderer.sendSync('get-steam-data', { appid: appID, user, type: 'user' });
+  return result;
 }
 
 async function getSteamUserStats(cfg) {
