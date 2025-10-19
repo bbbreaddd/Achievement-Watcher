@@ -150,7 +150,7 @@ async function startEngines() {
     settingsJS = require(path.join(__dirname, '../settings.js'));
     settingsJS.setUserDataPath(userData);
   }
-  if (!configJS) configJS = await settingsJS.load();
+  configJS = await settingsJS.load();
   if (!achievementsJS) {
     achievementsJS = require(path.join(__dirname, '../parser/achievements.js'));
     achievementsJS.initDebug({ isDev: app.isDev || false, userDataPath: userData });
@@ -181,7 +181,7 @@ async function getCachedData(info) {
 }
 
 ipcMain.on('capture-screen', async (event, { image, filename }) => {
-  if (!configJS.souvenir_screenshot.screenshot) return;
+  if (!configJS.souvenir_screenshot.screenshot || manifest.config.debug) return;
   const buffer = Buffer.from(image, 'base64');
   const savePath = path.join(
     configJS.souvenir_screenshot.custom_dir || app.getPath('pictures'),
@@ -1033,7 +1033,10 @@ async function createNotificationWindow(info) {
 
   if (configJS.notification_toast.customToastAudio === '2' || configJS.notification_toast.customToastAudio === '1') {
     let toastAudio = require(path.join(__dirname, '../util/toastAudio.js'));
-    let soundFile = configJS.notification_toast.customToastAudio === '1' ? toastAudio.getDefault() : toastAudio.getCustom();
+    let soundFile =
+      configJS.notification_toast.customToastAudio === '1'
+        ? path.join(process.env.SystemRoot || process.env.WINDIR, 'media', toastAudio.getDefault())
+        : toastAudio.getCustom();
     player.play(soundFile);
   }
   notificationWindow.webContents.on('did-finish-load', () => {
