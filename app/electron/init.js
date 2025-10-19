@@ -1302,6 +1302,20 @@ function checkResources() {
 
 try {
   if (app.requestSingleInstanceLock() !== true) app.quit();
+
+  autoUpdater.on('update-downloaded', () => {
+    dialog
+      .showMessageBox({
+        type: 'info',
+        title: 'Update Ready',
+        message: 'A new version has been downloaded. Restart now to install it?',
+        buttons: ['Yes', 'Later'],
+      })
+      .then((result) => {
+        if (result.response === 0) autoUpdater.quitAndInstall();
+      });
+  });
+
   app
     .on('ready', async function () {
       autoUpdater.checkForUpdatesAndNotify();
@@ -1334,18 +1348,6 @@ try {
       await delay(5000);
       if (!overlayWindow && !progressWindow && !notificationWindow && !playtimeWindow && !MainWin) app.quit();
     });
-  autoUpdater.on('update-downloaded', () => {
-    dialog
-      .showMessageBox({
-        type: 'info',
-        title: 'Update Ready',
-        message: 'A new version has been downloaded. Restart now to install it?',
-        buttons: ['Yes', 'Later'],
-      })
-      .then((result) => {
-        if (result.response === 0) autoUpdater.quitAndInstall();
-      });
-  });
 } catch (err) {
   dialog.showErrorBox('Critical Error', `Failed to initialize:\n${err}`);
   app.quit();
