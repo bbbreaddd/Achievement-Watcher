@@ -396,7 +396,7 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
   //}
   try {
     const installedChromePath = ChromeLauncher.Launcher.getInstallations()[0];
-    const chromiumPath = fs.existsSync(installedChromePath) ? installedChromePath : await ensureChromium();
+    const chromiumPath = fs.existsSync(installedChromePath) ? installedChromePath : (await ensureChromium()).executablePath;
     const url = `https://steamhunters.com/apps/${info.appid}/achievements`;
     if (!puppeteerWindow.browser)
       puppeteerWindow.browser = await puppeteer.launch({
