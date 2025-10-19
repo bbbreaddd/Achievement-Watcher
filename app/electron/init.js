@@ -48,6 +48,7 @@ let achievementsJS = null;
 
 if (manifest.config['disable-gpu']) app.disableHardwareAcceleration();
 if (manifest.config.appid) app.setAppUserModelId(manifest.config.appid);
+manifest.config.debug = process.env.NODE_ENV === 'development' || process.defaultApp || /[\\/]electron/.test(process.execPath);
 
 let puppeteerWindow = {};
 let MainWin = null;
