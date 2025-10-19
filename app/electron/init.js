@@ -1303,17 +1303,27 @@ function checkResources() {
 try {
   if (app.requestSingleInstanceLock() !== true) app.quit();
 
-  autoUpdater.on('update-downloaded', () => {
-    dialog
-      .showMessageBox({
-        type: 'info',
-        title: 'Update Ready',
-        message: 'A new version has been downloaded. Restart now to install it?',
-        buttons: ['Yes', 'Later'],
-      })
-      .then((result) => {
-        if (result.response === 0) autoUpdater.quitAndInstall();
-      });
+  autoUpdater.on('update-downloaded', async (info) => {
+    await startEngines();
+    const skippedVersion = configJS.skippedVersion;
+    if (skippedVersion && skippedVersion <= info.version) {
+      return;
+    }
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: `A new version (${info.version}) has been downloaded.`,
+      detail: `Would you like to install it now?`,
+      buttons: ['Yes', 'Later', 'Skip this version'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+
+    if (response === 0) autoUpdater.quitAndInstall();
+    else if (response === 2) {
+      configJS.skippedVersion = info.version;
+      settingsJS.save(configJS);
+    }
   });
 
   app
