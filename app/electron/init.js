@@ -13,6 +13,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const { BrowserWindow, dialog, session, shell, ipcMain, globalShortcut } = require('electron');
 const { autoUpdater } = require('electron-updater');
+autoUpdater.autoInstallOnAppQuit = false;
 const remote = require('@electron/remote/main');
 remote.initialize();
 const minimist = require('minimist');
