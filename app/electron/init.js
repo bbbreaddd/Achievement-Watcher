@@ -443,7 +443,7 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
               default_value: 0,
               displayName: item.name,
               hidden: item.hidden ? 1 : 0,
-              description: item.description,
+              description: item.description || ' ',
               icon: item.icon,
               icongray: item.iconGray,
             });

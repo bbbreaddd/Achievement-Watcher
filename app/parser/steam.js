@@ -659,7 +659,7 @@ function GetMissingData(data) {
       updated = true;
       const missing = data.achievement.list.filter((ac) => !ac.description || ac.description === '');
       updatedDesc = ipcRenderer.sendSync('get-steam-data', { appid: data.appid, type: 'steamhunters' });
-      const map = new Map(updatedDesc.achievements.map((item) => [item.title, item.desc]));
+      const map = new Map(updatedDesc.achievements.map((item) => [item.name, item.description]));
       for (let ach of data.achievement.list) {
         if (!ach.description && (map.has(ach.displayName) || map.has(ach.name))) ach.description = map.get(ach.displayName) || map.get(ach.name);
       }
