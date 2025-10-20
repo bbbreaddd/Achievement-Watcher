@@ -30,6 +30,9 @@ let debug = new (require('@xan105/log'))({
   file: path.join(userdatapath, `logs/${ipcRenderer.sendSync('get-app-name-sync')}.log`),
 });
 
+const gameElements = new Map();
+let gameList;
+
 ipcRenderer.on('reset-watchdog-status', (event) => {
   let shadow = document.querySelector('title-bar').shadowRoot;
   let watchdogStatus = shadow.querySelector('.status-dot');
@@ -59,6 +62,29 @@ ipcRenderer.on('watchdog-status', (event, found) => {
     startBtn.textContent = '';
   }
 });
+
+ipcRenderer.on('achievement-unlock', (event, { appid, ach_data }) => {
+  const game = gameList.find((game) => game.appid == appid);
+  const achievement = game.achievement.list.find((ach) => ach.name == ach_data.name);
+  achievement.Achieved = 1;
+  achievement.UnlockTime = Date.now() / 1000;
+  game.achievement.unlocked += 1;
+  updateGameBox(appid, Math.floor((game.achievement.unlocked / game.achievement.total) * 100));
+  updateGamePage(appid, ach_data);
+});
+
+function updateGamePage(appid, ach_data) {
+  app.onGameBoxClick($(gameElements.get(`${appid}`)), gameList);
+}
+
+function updateGameBox(appid, newProgress) {
+  const gameEl = gameElements.get(`${appid}`);
+  if (!gameEl) return;
+  const progressBar = gameEl.querySelector('.progressBar');
+  const meter = progressBar.querySelector('.meter');
+  meter.style.width = `${newProgress}%`;
+  progressBar.dataset.percent = newProgress;
+}
 
 var app = {
   args: getArgs(remote.process.argv),
@@ -113,6 +139,7 @@ var app = {
         }
         ipcRenderer.sendSync('close-puppeteer');
         debug.log('Populating game list ...');
+        gameList = list;
 
         let elem = $('#game-list ul');
 
@@ -191,11 +218,18 @@ var app = {
           }
         }
 
+        elem.find('.game-box').each(function () {
+          const appid = this.dataset.appid;
+          gameElements.set(appid, this);
+        });
+
         let average_progress = progress_cache.length > 0 ? Math.floor(progress_cache.reduce((acc, curr) => acc + curr) / progress_cache.length) : 0;
 
         $('#user-info .info .stats li:eq(2) span.data').text(average_progress);
 
-        $('#user-info .info .stats li:eq(1) span.data').text(list.filter((game) => game.achievement.unlocked == game.achievement.total).length);
+        $('#user-info .info .stats li:eq(1) span.data').text(
+          `${list.length}/${list.filter((game) => game.achievement.unlocked == game.achievement.total).length}`
+        );
 
         $('#user-info .info .stats li:eq(0) span.data').text(
           list
@@ -546,7 +580,7 @@ var app = {
       $('#achievement .wrapper > .header .stats .counter')
         .attr('data-count', game.achievement.unlocked)
         .attr('data-max', game.achievement.total)
-        .attr('data-percent', self.find('.progressBar').data('percent'));
+        .attr('data-percent', Math.floor((game.achievement.unlocked / game.achievement.total) * 100));
 
       if (game.system === 'playstation') {
         $('#achievement .wrapper > .header[data-system="playstation"] .trophy li.platinum span').text(

@@ -966,6 +966,7 @@ async function createNotificationWindow(info) {
     position: configJS.overlay.position,
     scale: parseFloat(configJS.overlay.scale),
   };
+  if (MainWin) MainWin.webContents.send('achievement-unlock', { appid: info.appid, ach_data: info.a });
 
   const display = require('electron').screen.getPrimaryDisplay();
   const { width, height } = display.workAreaSize;
