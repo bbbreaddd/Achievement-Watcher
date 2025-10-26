@@ -658,6 +658,9 @@ function GetMissingData(data) {
 const fetchIcon = (module.exports.fetchIcon = async (url, appID) => {
   try {
     const cache = path.join(process.env['APPDATA'], `Achievement Watcher/steam_cache/icon/${appID}`);
+    let filename = path.parse(url).base;
+    let filePath = path.join(cache, filename);
+    if (fs.existsSync(filePath)) return filePath;
 
     //legacy url are full urls, check if they are still valid
     let isValid = false;
@@ -683,9 +686,9 @@ const fetchIcon = (module.exports.fetchIcon = async (url, appID) => {
           : url
       );
 
-    const filename = path.parse(urlParser.parse(validUrl).pathname).base;
+    filename = path.parse(urlParser.parse(validUrl).pathname).base;
 
-    let filePath = path.join(cache, filename);
+    filePath = path.join(cache, filename);
 
     if (fs.existsSync(filePath)) {
       return filePath;

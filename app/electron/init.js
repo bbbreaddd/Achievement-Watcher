@@ -956,7 +956,6 @@ async function createNotificationWindow(info) {
   isNotificationShowing = true;
 
   await startEngines();
-  await clientLogOn();
   await getCachedData(info);
   closePuppeteer();
   const message = {
@@ -1135,7 +1134,6 @@ async function createPlaytimeWindow(info) {
   playtimeWindow.setFocusable(false);
 
   await startEngines();
-  await clientLogOn();
   await getCachedData(info);
   closePuppeteer();
   info.headerUrl = pathToFileURL(await fetchIcon(info.game.img.header, info.appid)).href;
