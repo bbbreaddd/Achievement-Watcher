@@ -661,7 +661,12 @@ const fetchIcon = (module.exports.fetchIcon = async (url, appID) => {
     let filename = path.parse(url).base;
     let filePath = path.join(cache, filename);
     if (fs.existsSync(filePath)) return filePath;
-
+    let exts = ['.jpg', '.png'];
+    if (!url.endsWith('.jpg') && !url.endsWith('.png'))
+      for (let ext of exts) {
+        filePath = path.join(cache, filename + ext);
+        if (fs.existsSync(filePath)) return filePath;
+      }
     //legacy url are full urls, check if they are still valid
     let isValid = false;
     let validUrl = url;
