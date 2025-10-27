@@ -656,10 +656,12 @@ function GetMissingData(data) {
 }
 
 const fetchIcon = (module.exports.fetchIcon = async (url, appID) => {
+  let validUrl;
+  let filePath;
   try {
     const cache = path.join(process.env['APPDATA'], `Achievement Watcher/steam_cache/icon/${appID}`);
     let filename = path.parse(url).base;
-    let filePath = path.join(cache, filename);
+    filePath = path.join(cache, filename);
     if (fs.existsSync(filePath)) return filePath;
     let exts = ['.jpg', '.png'];
     if (!url.endsWith('.jpg') && !url.endsWith('.png'))
@@ -669,7 +671,7 @@ const fetchIcon = (module.exports.fetchIcon = async (url, appID) => {
       }
     //legacy url are full urls, check if they are still valid
     let isValid = false;
-    let validUrl = url;
+    validUrl = url;
     try {
       new URL(url);
       const res = await request(url, { method: 'HEAD' });
@@ -698,9 +700,21 @@ const fetchIcon = (module.exports.fetchIcon = async (url, appID) => {
     if (fs.existsSync(filePath)) {
       return filePath;
     } else {
-      return (await request.download(validUrl, cache)).path;
+      return (await request.download(validUrl, cache, { validateFileSize: false })).path;
     }
   } catch (err) {
+    if (err.code === 'ESIZEMISMATCH') {
+      try {
+        const fetch = require('node-fetch');
+        const res = await fetch(validUrl);
+        if (!res.ok) return validUrl;
+        const buffer = Buffer.from(await res.arrayBuffer());
+        fs.writeFileSync(filePath, buffer);
+        return filePath;
+      } catch (e) {
+        return validUrl;
+      }
+    }
     return url;
   }
 });
