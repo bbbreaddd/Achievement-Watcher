@@ -1,5 +1,5 @@
 const { execFile } = require('child_process');
-const { HKEY, enumerateValues, enumerateKeys, setValue } = require('registry-js');
+const { HKEY, enumerateValues, enumerateKeys, setValue, createKey } = require('registry-js');
 
 function hkeyFromString(hive) {
   const map = {
@@ -20,6 +20,7 @@ function writeRegistryString(hive, keyPath, valueName, value) {
 
   // Default value is represented by "" (empty string) not "(default)"
   const name = valueName || '';
+  createKey(hiveEnum, normalizedKey);
 
   const ok = setValue(hiveEnum, normalizedKey, name, 'REG_SZ', String(value));
   if (!ok) throw new Error(`Failed to set registry value ${hive}\\${keyPath}\\${name}`);
@@ -32,6 +33,7 @@ function writeRegistryDword(hive, keyPath, valueName, value) {
   const normalizedKey = keyPath.replace(/\//g, '\\');
 
   const name = valueName || ''; // "" = (Default) value
+  createKey(hiveEnum, normalizedKey);
 
   // REG_DWORD expects a string, even though it’s numeric
   const ok = setValue(hiveEnum, normalizedKey, name, 'REG_DWORD', String(value));
