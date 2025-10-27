@@ -133,8 +133,13 @@ async function getSteamData(request) {
       return info;
     }
     await clientLogOn();
+    const storeURL = `https://store.steampowered.com/api/appdetails?appids=${appid}&cc=us&l=en`;
+    const storeRes = await fetch(storeURL);
+    const json = await storeRes.json();
+    const storeData = json[appid] && json[appid].data;
     const { apps, packages, unknownApps, unknownPackages } = await client.getProductInfo([appid], [], false);
     const appInfo = apps[appid]?.appinfo || apps[0]?.appinfo;
+
     switch (type) {
       case 'name':
         return appInfo?.common?.name;
@@ -151,8 +156,10 @@ async function getSteamData(request) {
           name: appInfo.common.name,
           isGame: appInfo?.common?.type?.toLowerCase() === 'game',
           icon: appInfo.common.icon,
-          header: appInfo.common.header_image?.english || appInfo.common.library_assets_full?.library_header?.image?.english,
+          header:
+            appInfo.common.header_image?.english || appInfo.common.library_assets_full?.library_header?.image?.english || storeData.header_image,
           portrait: appInfo.common.library_assets_full?.library_capsule?.image?.english,
+          background: storeData.background.replace(/(\?|&)t=\d+$/, ''),
         };
     }
 
