@@ -160,6 +160,7 @@ module.exports.saveGameToCache = async (info, lang) => {
     default:
       let cfg = info.game;
       cfg.lang = lang;
+      cfg.appid = info.appid;
       steam.saveGameToCache(cfg);
   }
 };

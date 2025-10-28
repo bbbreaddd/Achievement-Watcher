@@ -208,8 +208,13 @@ async function getCachedData(info) {
         info.description = info.a?.displayName;
         return;
       }
-      let data = await getSteamData({ appid: info.appid, type: 'steamhunters' });
-      info.game = data;
+      const [data, com] = await Promise.all([
+        getSteamData({ appid: info.appid, type: 'steamhunters' }),
+        getSteamData({ appid: info.appid, type: 'common' }),
+      ]);
+      info.game = com;
+      info.game.achievements = data.achievements;
+
       await achievementsJS.saveGameToCache(info, configJS.achievement.lang);
       info.a = info.game.achievements.find((ac) => ac.name === String(info.ach));
       info.description = info.a?.displayName;

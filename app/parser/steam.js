@@ -183,10 +183,10 @@ module.exports.saveGameToCache = async (cfg) => {
     appid: cfg.appid,
     binary: null,
     img: {
-      header: `https://cdn.akamai.steamstatic.com/steam/apps/${cfg.appid}/header.jpg`,
-      background: `https://cdn.akamai.steamstatic.com/steam/apps/${cfg.appid}/page_bg_generated_v6b.jpg`,
-      portrait: `https://cdn.akamai.steamstatic.com/steam/apps/${cfg.appid}/library_600x900.jpg`,
-      icon: `https://cdn.akamai.steamstatic.com/steam/apps/${cfg.appid}/${cfg.icon}.jpg`,
+      header: cfg.header,
+      background: cfg.background,
+      portrait: cfg.portrait,
+      icon: cfg.icon,
     },
     achievement: {
       total: cfg.achievements.length,
