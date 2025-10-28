@@ -1070,13 +1070,13 @@ async function createNotificationWindow(info) {
   notificationWindow.setIgnoreMouseEvents(true, { forward: true });
   notificationWindow.info = info;
 
+  let soundFile;
   if (configJS.notification_toast.customToastAudio === '2' || configJS.notification_toast.customToastAudio === '1') {
     let toastAudio = require(path.join(__dirname, '../util/toastAudio.js'));
-    let soundFile =
+    soundFile =
       configJS.notification_toast.customToastAudio === '1'
         ? path.join(process.env.SystemRoot || process.env.WINDIR, 'media', toastAudio.getDefault())
         : toastAudio.getCustom();
-    player.play(soundFile);
   }
   notificationWindow.webContents.on('did-finish-load', () => {
     notificationWindow.showInactive();
@@ -1089,6 +1089,7 @@ async function createNotificationWindow(info) {
       scale,
     });
     createOverlayWindow({ appid: info.appid, action: 'refresh' });
+    player.play(soundFile);
   });
 
   notificationWindow.on('closed', async () => {
