@@ -73,7 +73,8 @@ let debug = new (require('@xan105/log'))({
 
 async function getUserAchievements(appid) {
   let steamid = 76561198152618007;
-
+  //TODO: this can be used to get descriptions in other languagues
+  // append to url -> ?l=<languague> - like english/french/etc
   const url = `https://steamcommunity.com/profiles/${steamid}`;
   const res = await fetch(url, { redirect: 'manual', headers: { userAgent: 'node-fecth' } });
   const l = res.headers.get('location');
@@ -431,22 +432,19 @@ async function ensureChromium() {
   return info;
 }
 
-async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
-  if (alternate && alternate.steamhunters) while (currentlyscraping) delay(100);
-  currentlyscraping = true;
-  try {
-    const installedChromePath = ChromeLauncher.Launcher.getInstallations()[0];
-    const chromiumPath = fs.existsSync(installedChromePath) ? installedChromePath : (await ensureChromium()).executablePath;
-    const url = `https://steamhunters.com/apps/${info.appid}/achievements`;
-    if (!puppeteerWindow.browser)
-      puppeteerWindow.browser = await puppeteer.launch({
-        headless: alternate && alternate.steamhunters ? 'new' : false,
-        executablePath: chromiumPath,
-        args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-extensions'],
-      });
-    if (!puppeteerWindow.context) puppeteerWindow.context = await puppeteerWindow.browser.createIncognitoBrowserContext();
-    if (!puppeteerWindow.page) {
-      puppeteerWindow.page = await puppeteerWindow.context.newPage();
+async function startPuppeteer(headless, strip) {
+  const installedChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' || ChromeLauncher.Launcher.getInstallations()[0];
+  const chromiumPath = fs.existsSync(installedChromePath) ? installedChromePath : (await ensureChromium()).executablePath;
+  if (!puppeteerWindow.browser)
+    puppeteerWindow.browser = await puppeteer.launch({
+      headless: headless ? 'new' : false,
+      executablePath: chromiumPath,
+      args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-extensions'],
+    });
+  if (!puppeteerWindow.context) puppeteerWindow.context = await puppeteerWindow.browser.createIncognitoBrowserContext();
+  if (!puppeteerWindow.page) {
+    puppeteerWindow.page = await puppeteerWindow.context.newPage();
+    if (strip) {
       const page = puppeteerWindow.page;
       await page.setRequestInterception(true);
       page.on('request', (req) => {
@@ -458,6 +456,14 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
         }
       });
     }
+  }
+}
+
+async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
+  if (alternate && alternate.steamhunters) while (currentlyscraping) delay(100);
+  currentlyscraping = true;
+  await startPuppeteer(alternate && alternate.steamhunters, alternate && alternate.steamhunters);
+  try {
     if (alternate) {
       if (alternate.steamhunters) {
         let start = Date.now();
@@ -597,10 +603,9 @@ async function searchForGameName(info = { appid: '' }) {
   let locale = 'en-US'; // use AW's languague in the future? does it even make a difference in this context?
   let startIndex = 0;
   let matchResult;
+  await startPuppeteer(true, false);
 
   async function scrapePage(startIndex) {
-    if (!puppeteerWindow.browser) puppeteerWindow.browser = await puppeteer.launch({ headless: false, executablePath: puppeteer.executablePath() });
-    if (!puppeteerWindow.context) puppeteerWindow.context = await puppeteerWindow.browser.createIncognitoBrowserContext();
     const page = await puppeteerWindow.context.newPage();
 
     const url = `https://store.epicgames.com/pt/browse?sortBy=releaseDate&sortDir=DESC&tag=Windows&priceTier=tier3&category=Game&count=40&start=${
