@@ -96,10 +96,13 @@ async function getUserAchievements(appid) {
 async function getSteamData(request) {
   const appid = request.appid;
   const type = request.type;
-  const user = request.user;
+  const userid = request.userid || '76561198152618007';
   try {
     if (type === 'user') {
-      const url = `https://steamcommunity.com/profiles/${user}/stats/${appid}/?xml=1`;
+      const r = await fetch(`https://steamcommunity.com/profiles/${userid}`, { redirect: 'manual' });
+      const user = new URL(r.headers.get('location')).pathname.split('/')[2];
+      const url = `https://steamcommunity.com/profiles/${userid}/stats/${appid}/?xml=1`; // this for all data
+      //const url2 = https://steamcommunity.com/id/hush_please/stats/2321470?l=french // this for name and description, match them via icon hash
       const res = await fetch(url);
       const xml = await res.text();
       const parser = new XMLParser({ ignoreAttributes: false, allowBooleanAttributes: true, cdataPropName: '__cdata' });
@@ -775,7 +778,7 @@ function createMainWindow() {
   } catch {
     delete options.icon;
   }
-
+  //getSteamData({ appid: 2321470, type: 'user' });
   MainWin = new BrowserWindow(options);
 
   //Frameless
