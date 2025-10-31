@@ -351,6 +351,7 @@ module.exports.makeList = async (option, callbackProgress, onGame = () => {}) =>
     if (appidList.length > 0) {
       let count = 0;
       const promises = appidList.map(async (appid, index) => {
+        await new Promise((r) => setTimeout(r, 10 * index));
         let startTime, endTime;
         startTime = Date.now();
         debug.log(`[${appid.appid}] loading data...`);
