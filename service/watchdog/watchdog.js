@@ -1,7 +1,6 @@
 'use strict';
 
 const instance = new (require('single-instance'))('Achievement Watchdog');
-const hotkeys = require('node-hotkeys');
 const os = require('os');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -26,6 +25,7 @@ const { isWinRTAvailable } = require('powertoast');
 const { isFullscreenAppRunning } = require('./queryUserNotificationState.js');
 const { enableObs, startObs, recordGame, setRecordPath, setRecordResolution } = require('./obsHandler.js');
 const userShellFolder = require('./util/userShellFolder.js');
+let hotkeys; // required later to avoid io conflict
 
 const cfg_file = {
   option: path.join(process.env['APPDATA'], 'Achievement Watcher/cfg', 'options.ini'),
@@ -575,9 +575,11 @@ var app = {
   },
 };
 
-instance
-  .lock()
-  .then(() => {
+(async () => {
+  try {
+    await instance.lock();
+    hotkeys = require('node-hotkeys');
+
     app.start().catch((err) => {
       debug.log(err);
     });
@@ -655,8 +657,8 @@ instance
       .catch((err) => {
         debug.error(err);
       });
-  })
-  .catch((err) => {
+  } catch (err) {
     debug.error(err);
     process.exit();
-  });
+  }
+})();
