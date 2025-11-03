@@ -1519,9 +1519,11 @@ async function createPlaytimeWindow(info) {
   playtimeWindow.setFullScreenable(false);
   playtimeWindow.setFocusable(false);
 
+  const desc = info.description;
   await startEngines();
   await getCachedData(info);
   closePuppeteer();
+  info.description = desc;
   info.headerUrl = pathToFileURL(await fetchIcon(info.game.img.header, info.appid)).href;
   playtimeWindow.once('ready-to-show', () => {
     if (playtimeWindow && !playtimeWindow.isDestroyed()) {
