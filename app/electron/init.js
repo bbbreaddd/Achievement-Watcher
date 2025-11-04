@@ -1445,7 +1445,7 @@ async function createNotificationWindow(info) {
   notificationWindow.setAlwaysOnTop(true, 'screen-saver');
   notificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   notificationWindow.setFullScreenable(false);
-  notificationWindow.setFocusable(true);
+  notificationWindow.setFocusable(false);
   notificationWindow.setIgnoreMouseEvents(true, { forward: true });
   notificationWindow.info = info;
 
