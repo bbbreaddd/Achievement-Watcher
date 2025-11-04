@@ -18,8 +18,9 @@ const files = {
     'achieve.dat',
     'Achievements.ini',
     'stats.bin',
+    'user_stats.ini',
   ],
-  steamEmu: ['ALI213.ini', 'valve.ini', 'hlm.ini', 'ds.ini', 'steam_api.ini', 'SteamConfig.ini'],
+  steamEmu: ['ALI213.ini', 'valve.ini', 'hlm.ini', 'ds.ini', 'steam_api.ini', 'SteamConfig.ini', 'tenoke.ini'],
 };
 
 module.exports.getFolders = async (userDir_file) => {
@@ -247,6 +248,12 @@ module.exports.getFolders = async (userDir_file) => {
                     options: { appid: info.Settings.AppId, recursive: false, file: [files.achievement[6]] },
                   });
               }
+            } else if (file === files.steamEmu[6]) {
+              //TENOKE
+              steamEmu.push({
+                dir: path.join(dir.path, 'SteamData'),
+                options: { appid: info.TENOKE.id.split('#')[0].trim(), recursive: false, file: [files.achievement[8]] },
+              });
             }
           } else {
             steamEmu.push({ dir: dir.path, options: { recursive: true, filter: /([0-9]+)/, file: files.achievement } });
