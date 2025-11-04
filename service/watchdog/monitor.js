@@ -84,6 +84,10 @@ module.exports.getFolders = async (userDir_file) => {
       dir: path.join(process.env['APPDATA'], 'NemirtingasGalaxyEmu', '*/*/'),
       options: { recursive: true, filter: /([0-9]+)/, file: [files.achievement[1]] },
     },
+    {
+      dir: path.join(process.env['LOCALAPPDATA'], 'anadius', 'LSX emu', 'achievement_watcher'),
+      options: { recursive: true, filter: /([0-9]+)/, file: [files.achievement[0]] },
+    },
   ];
 
   try {
