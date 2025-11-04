@@ -538,14 +538,19 @@ async function getCachedData(info) {
   }
 }
 
-ipcMain.on('capture-screen', async (event, { image, filename }) => {
+ipcMain.on('capture-screen', async (event, { image, game, name }) => {
+  function sanitizeName(name) {
+    // Remove invalid characters
+    name = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '');
+    // Remove trailing spaces or dots
+    name = name.replace(/[. ]+$/, '');
+    // Trim just in case
+    return name.trim();
+  }
   if (!configJS.souvenir_screenshot.screenshot || manifest.config.debug) return;
   const buffer = Buffer.from(image, 'base64');
-  const savePath = path.join(
+  const savePath = path.join(configJS.souvenir_screenshot.custom_dir || app.getPath('pictures'), sanitizeName(game), sanitizeName(name) + '.png');
     configJS.souvenir_screenshot.custom_dir || app.getPath('pictures'),
-    notificationWindow.info.game.name,
-    notificationWindow.info.description + '.png'
-  );
   fs.mkdirSync(path.dirname(savePath), { recursive: true });
   if (!configJS.souvenir_screenshot.overwrite_image && fs.existsSync(savePath)) return;
   fs.writeFileSync(savePath, buffer);
@@ -1344,6 +1349,7 @@ async function createNotificationWindow(info) {
   await getCachedData(info);
   closePuppeteer();
   const message = {
+    name: info.game.name,
     displayName: info.a.displayName || '',
     description: info.a.description || '',
     icon: pathToFileURL(await fetchIcon(info.a.icon, info.appid)).href,
@@ -1456,6 +1462,7 @@ async function createNotificationWindow(info) {
     notificationWindow.webContents.send('set-window-scale', scale);
     notificationWindow.webContents.send('set-animation-scale', (configJS.overlay?.duration ?? 1) * 0.01);
     notificationWindow.webContents.send('show-notification', {
+      game: message.name,
       displayName: message.displayName,
       description: message.description,
       iconPath: message.icon,
