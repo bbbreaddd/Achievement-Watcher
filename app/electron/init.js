@@ -550,7 +550,6 @@ ipcMain.on('capture-screen', async (event, { image, game, name }) => {
   if (!configJS.souvenir_screenshot.screenshot || manifest.config.debug) return;
   const buffer = Buffer.from(image, 'base64');
   const savePath = path.join(configJS.souvenir_screenshot.custom_dir || app.getPath('pictures'), sanitizeName(game), sanitizeName(name) + '.png');
-    configJS.souvenir_screenshot.custom_dir || app.getPath('pictures'),
   fs.mkdirSync(path.dirname(savePath), { recursive: true });
   if (!configJS.souvenir_screenshot.overwrite_image && fs.existsSync(savePath)) return;
   fs.writeFileSync(savePath, buffer);
@@ -1126,328 +1125,340 @@ function searchForSteamAppId(info = { name: '' }) {
 }
 
 function createMainWindow() {
-  if (MainWin) {
-    if (MainWin.isMinimized()) MainWin.restore();
-    MainWin.focus();
-    return;
-  }
-  let options = manifest.config.window;
-  options.show = false;
-  options.webPreferences = {
-    devTools: manifest.config.debug || false,
-    nodeIntegration: true,
-    contextIsolation: false,
-    webviewTag: false,
-    v8CacheOptions: manifest.config.debug ? 'none' : 'code',
-    enableRemoteModule: true,
-    backgroundThrottling: false,
-  };
-  //electron 9 crash if no icon exists to specified path
   try {
-    fs.accessSync(options.icon, fs.constants.F_OK);
-  } catch {
-    delete options.icon;
-  }
-  //getSteamData({ appid: 2321470, type: 'user' });
-  MainWin = new BrowserWindow(options);
-
-  //Frameless
-  if (options.frame === false) MainWin.isFrameless = true;
-
-  //Debug tool
-  if (manifest.config.debug) {
-    MainWin.webContents.openDevTools({ mode: 'undocked' });
-    MainWin.isDev = true;
-    console.info((({ node, electron, chrome }) => ({ node, electron, chrome }))(process.versions));
+    if (MainWin) {
+      if (MainWin.isMinimized()) MainWin.restore();
+      MainWin.focus();
+      return;
+    }
+    let options = manifest.config.window;
+    options.show = false;
+    options.webPreferences = {
+      devTools: manifest.config.debug || false,
+      nodeIntegration: true,
+      contextIsolation: false,
+      webviewTag: false,
+      v8CacheOptions: manifest.config.debug ? 'none' : 'code',
+      enableRemoteModule: true,
+      backgroundThrottling: false,
+    };
+    //electron 9 crash if no icon exists to specified path
     try {
-      const contextMenu = require('electron-context-menu')({
-        append: (defaultActions, params, browserWindow) => [
-          {
-            label: 'Reload',
-            visible: params,
-            click: () => {
-              MainWin.reload();
+      fs.accessSync(options.icon, fs.constants.F_OK);
+    } catch {
+      delete options.icon;
+    }
+    //getSteamData({ appid: 2321470, type: 'user' });
+    MainWin = new BrowserWindow(options);
+
+    //Frameless
+    if (options.frame === false) MainWin.isFrameless = true;
+
+    //Debug tool
+    if (manifest.config.debug) {
+      MainWin.webContents.openDevTools({ mode: 'undocked' });
+      MainWin.isDev = true;
+      console.info((({ node, electron, chrome }) => ({ node, electron, chrome }))(process.versions));
+      try {
+        const contextMenu = require('electron-context-menu')({
+          append: (defaultActions, params, browserWindow) => [
+            {
+              label: 'Reload',
+              visible: params,
+              click: () => {
+                MainWin.reload();
+              },
             },
-          },
-        ],
-      });
-    } catch (err) {
-      dialog.showMessageBoxSync({
-        type: 'warning',
-        title: 'Context Menu',
-        message: 'Failed to initialize context menu.',
-        detail: `${err}`,
-      });
+          ],
+        });
+      } catch (err) {
+        dialog.showMessageBoxSync({
+          type: 'warning',
+          title: 'Context Menu',
+          message: 'Failed to initialize context menu.',
+          detail: `${err}`,
+        });
+      }
     }
-  }
 
-  //User agent
-  MainWin.webContents.userAgent = manifest.config['user-agent'];
-  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['User-Agent'] = manifest.config['user-agent'];
-    callback({ cancel: false, requestHeaders: details.requestHeaders });
-  });
+    //User agent
+    MainWin.webContents.userAgent = manifest.config['user-agent'];
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      details.requestHeaders['User-Agent'] = manifest.config['user-agent'];
+      callback({ cancel: false, requestHeaders: details.requestHeaders });
+    });
 
-  //External open links
-  const openExternal = function (event, url) {
-    if (!url.startsWith('file:///')) {
-      event.preventDefault();
-      shell.openExternal(url).catch(() => {});
-    }
-  };
-  MainWin.webContents.on('will-navigate', openExternal); //a href
-  MainWin.webContents.on('new-window', openExternal); //a href target="_blank"
+    //External open links
+    const openExternal = function (event, url) {
+      if (!url.startsWith('file:///')) {
+        event.preventDefault();
+        shell.openExternal(url).catch(() => {});
+      }
+    };
+    MainWin.webContents.on('will-navigate', openExternal); //a href
+    MainWin.webContents.on('new-window', openExternal); //a href target="_blank"
 
-  MainWin.loadFile(manifest.config.window.view);
+    MainWin.loadFile(manifest.config.window.view);
 
-  const isReady = [
-    new Promise(function (resolve) {
-      MainWin.once('ready-to-show', () => {
-        return resolve();
-      }); //Window is loaded and ready to be drawn
-    }),
-    new Promise(function (resolve) {
-      ipcMain.handleOnce('components-loaded', () => {
-        return resolve();
-      }); //Wait for custom event
-    }),
-  ];
+    const isReady = [
+      new Promise(function (resolve) {
+        MainWin.once('ready-to-show', () => {
+          return resolve();
+        }); //Window is loaded and ready to be drawn
+      }),
+      new Promise(function (resolve) {
+        ipcMain.handleOnce('components-loaded', () => {
+          return resolve();
+        }); //Wait for custom event
+      }),
+    ];
 
-  Promise.all(isReady).then(() => {
-    MainWin.show();
-    MainWin.focus();
+    Promise.all(isReady).then(() => {
+      MainWin.show();
+      MainWin.focus();
 
-    setInterval(() => {
-      const command = `powershell -NoProfile -Command "Get-Process | Where-Object { $_.Path -ne $null } | ForEach-Object { try { $desc = (Get-Item $_.Path).VersionInfo.FileDescription } catch { $desc = 'N/A' }; $memoryUsage = $_.WorkingSet / 1MB; Write-Output ('{0}|{1}|{2}|{3}' -f $_.Name, $_.Id, $desc, $memoryUsage) }"`;
-      let found = false;
-      exec(command, (error, stdout) => {
-        if (!error) {
-          const lines = stdout.trim().split('\r\n');
-          for (const line of lines) {
-            const [name, pid, description, memory] = line.trim().split('|');
-            if (name.toLowerCase() === 'node' && description.toLowerCase().includes('achievement watchdog')) {
-              found = true;
+      setInterval(() => {
+        const command = `powershell -NoProfile -Command "Get-Process | Where-Object { $_.Path -ne $null } | ForEach-Object { try { $desc = (Get-Item $_.Path).VersionInfo.FileDescription } catch { $desc = 'N/A' }; $memoryUsage = $_.WorkingSet / 1MB; Write-Output ('{0}|{1}|{2}|{3}' -f $_.Name, $_.Id, $desc, $memoryUsage) }"`;
+        let found = false;
+        exec(command, (error, stdout) => {
+          if (!error) {
+            const lines = stdout.trim().split('\r\n');
+            for (const line of lines) {
+              const [name, pid, description, memory] = line.trim().split('|');
+              if (name.toLowerCase() === 'node' && description.toLowerCase().includes('achievement watchdog')) {
+                found = true;
+              }
             }
           }
-        }
-        if (MainWin) MainWin.webContents.send('watchdog-status', found);
-      });
-    }, 5000);
-  });
+          if (MainWin) MainWin.webContents.send('watchdog-status', found);
+        });
+      }, 5000);
+    });
 
-  MainWin.on('closed', () => {
-    MainWin = null;
-  });
+    MainWin.on('closed', () => {
+      MainWin = null;
+      if (shouldQuitApp()) app.quit();
+    });
+  } catch (e) {
+    debug.log('Error creating main window,', e);
+    if (shouldQuitApp()) app.quit();
+  }
 }
 
 /**
  * @param {{appid: string, action:string}} info
  */
 async function createOverlayWindow(info) {
-  if (!info.action) info.action = 'open';
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    if (String(info.appid) === '0' || info.action == 'close') {
-      overlayWindow.close();
-      return;
+  try {
+    if (!info.action) info.action = 'open';
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      if (String(info.appid) === '0' || info.action == 'close') {
+        overlayWindow.close();
+        return;
+      }
+      if (info.action === 'refresh') {
+        overlayWindow.webContents.send('refresh-achievements-table', String(info.appid));
+        return;
+      }
     }
-    if (info.action === 'refresh') {
-      overlayWindow.webContents.send('refresh-achievements-table', String(info.appid));
-      return;
-    }
-  }
-  if (String(info.appid) === '0' || info.action === 'refresh') return;
-  const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize;
-  isOverlayShowing = true;
+    if (String(info.appid) === '0' || info.action === 'refresh') return;
+    const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize;
+    isOverlayShowing = true;
 
-  await startEngines();
-  await getCachedData(info);
-  info.game = await achievementsJS.getSavedAchievementsForAppid(configJS, { appid: info.appid });
+    await startEngines();
+    await getCachedData(info);
+    info.game = await achievementsJS.getSavedAchievementsForAppid(configJS, { appid: info.appid });
 
-  overlayWindow = new BrowserWindow({
-    width: 450,
-    height: 800,
-    x: width - 470,
-    y: 20,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    focusable: true,
-    hasShadow: false,
-    fullscreenable: false,
-    webPreferences: {
-      preload: path.join(__dirname, '../overlayPreload.js'),
-      additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
-      contextIsolation: true,
-      nodeIntegration: false,
-      devTools: manifest.config.debug || false,
-      backgroundThrottling: false,
-    },
-  });
+    overlayWindow = new BrowserWindow({
+      width: 450,
+      height: 800,
+      x: width - 470,
+      y: 20,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      focusable: true,
+      hasShadow: false,
+      fullscreenable: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../overlayPreload.js'),
+        additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
+        contextIsolation: true,
+        nodeIntegration: false,
+        devTools: manifest.config.debug || false,
+        backgroundThrottling: false,
+      },
+    });
 
-  if (manifest.config.debug) {
-    overlayWindow.webContents.openDevTools({ mode: 'undocked' });
-    overlayWindow.isDev = true;
-    console.info((({ node, electron, chrome }) => ({ node, electron, chrome }))(process.versions));
-    try {
-      const contextMenu = require('electron-context-menu')({
-        append: (defaultActions, params, browserWindow) => [
-          {
-            label: 'Reload',
-            visible: params,
-            click: () => {
-              overlayWindow.reload();
+    if (manifest.config.debug) {
+      overlayWindow.webContents.openDevTools({ mode: 'undocked' });
+      overlayWindow.isDev = true;
+      console.info((({ node, electron, chrome }) => ({ node, electron, chrome }))(process.versions));
+      try {
+        const contextMenu = require('electron-context-menu')({
+          append: (defaultActions, params, browserWindow) => [
+            {
+              label: 'Reload',
+              visible: params,
+              click: () => {
+                overlayWindow.reload();
+              },
             },
-          },
-        ],
-      });
-    } catch (err) {
-      dialog.showMessageBoxSync({
-        type: 'warning',
-        title: 'Context Menu',
-        message: 'Failed to initialize context menu.',
-        detail: `${err}`,
-      });
+          ],
+        });
+      } catch (err) {
+        dialog.showMessageBoxSync({
+          type: 'warning',
+          title: 'Context Menu',
+          message: 'Failed to initialize context menu.',
+          detail: `${err}`,
+        });
+      }
     }
+
+    //User agent
+    overlayWindow.webContents.userAgent = manifest.config['user-agent'];
+    session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      details.requestHeaders['User-Agent'] = manifest.config['user-agent'];
+      callback({ cancel: false, requestHeaders: details.requestHeaders });
+    });
+
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+    overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    overlayWindow.setFullScreenable(false);
+    overlayWindow.setFocusable(true);
+    overlayWindow.blur();
+
+    overlayWindow.loadFile(path.join(manifest.config.debug ? '' : userData, 'view\\overlay.html'));
+    let selectedLanguage = 'english';
+    overlayWindow.webContents.on('did-finish-load', () => {
+      overlayWindow.webContents.send('show-overlay', info.game);
+      overlayWindow.showInactive();
+    });
+
+    overlayWindow.on('closed', () => {
+      isOverlayShowing = false;
+      overlayWindow = null;
+    });
+  } catch (e) {
+    debug.log('Error creating overlay window,', e);
+    if (shouldQuitApp()) app.quit();
   }
-
-  //User agent
-  overlayWindow.webContents.userAgent = manifest.config['user-agent'];
-  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['User-Agent'] = manifest.config['user-agent'];
-    callback({ cancel: false, requestHeaders: details.requestHeaders });
-  });
-
-  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  overlayWindow.setFullScreenable(false);
-  overlayWindow.setFocusable(true);
-  overlayWindow.blur();
-
-  overlayWindow.loadFile(path.join(manifest.config.debug ? '' : userData, 'view\\overlay.html'));
-  let selectedLanguage = 'english';
-  overlayWindow.webContents.on('did-finish-load', () => {
-    overlayWindow.webContents.send('show-overlay', info.game);
-    overlayWindow.showInactive();
-  });
-
-  overlayWindow.on('closed', () => {
-    isOverlayShowing = false;
-    overlayWindow = null;
-  });
 }
 
 async function createNotificationWindow(info) {
-  if (isNotificationShowing) {
-    earnedNotificationQueue.push(info);
-    return;
-  }
-  isNotificationShowing = true;
-
-  await startEngines();
-  await getCachedData(info);
-  closePuppeteer();
-  const message = {
-    name: info.game.name,
-    displayName: info.a.displayName || '',
-    description: info.a.description || '',
-    icon: pathToFileURL(await fetchIcon(info.a.icon, info.appid)).href,
-    icon_gray: pathToFileURL(await fetchIcon(info.a.icongray, info.appid)).href,
-    preset: configJS.overlay.preset,
-    position: configJS.overlay.position,
-    scale: parseFloat(configJS.overlay.scale),
-  };
-  if (MainWin) MainWin.webContents.send('achievement-unlock', { appid: info.appid, ach_data: info.a });
-
-  const display = require('electron').screen.getPrimaryDisplay();
-  const { width, height } = display.workAreaSize;
-
-  const preset = message.preset || 'default';
-  const presetFolder = path.join(manifest.config.debug ? path.join(__dirname, '../') : userData, 'presets', preset);
-  const presetHtml = path.join(presetFolder, 'index.html');
-  const position = message.position || 'center-bot';
-  const scale = parseFloat(message.scale * 0.01 || 1);
-
-  const { width: windowWidth, height: windowHeight } = getPresetDimensions(presetFolder);
-
-  const scaledWidth = windowWidth * scale;
-  const scaledHeight = windowHeight * scale;
-
-  let x = 0,
-    y = 0;
-
-  if (position.includes('left')) {
-    x = 20;
-  } else if (position.includes('right')) {
-    x = width - scaledWidth - 20;
-  } else if (position.includes('center')) {
-    x = Math.floor(width / 2 - scaledWidth / 2);
-  }
-
-  if (position.includes('top')) {
-    y = 10;
-  } else if (position.includes('bot')) {
-    y = height - Math.round(scaledHeight) - 20;
-  } else if (position.includes('mid')) {
-    y = height / 2 - Math.round(scaledHeight / 2);
-  }
-
-  notificationWindow = new BrowserWindow({
-    width: scaledWidth,
-    height: scaledHeight,
-    x,
-    y,
-    transparent: true,
-    frame: false,
-    show: false,
-    alwaysOnTop: true,
-    focusable: true,
-    resizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    hasShadow: false,
-    webPreferences: {
-      preload: path.join(__dirname, '../overlayPreload.js'),
-      additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
-  });
-
-  if (manifest.config.debug) {
-    notificationWindow.webContents.openDevTools({ mode: 'undocked' });
-    notificationWindow.isDev = true;
-    console.info((({ node, electron, chrome }) => ({ node, electron, chrome }))(process.versions));
-    try {
-      const contextMenu = require('electron-context-menu')({
-        append: (defaultActions, params, browserWindow) => [
-          {
-            label: 'Reload',
-            visible: params,
-            click: () => {
-              notificationWindow.reload();
-            },
-          },
-        ],
-      });
-    } catch (err) {
-      dialog.showMessageBoxSync({
-        type: 'warning',
-        title: 'Context Menu',
-        message: 'Failed to initialize context menu.',
-        detail: `${err}`,
-      });
+  try {
+    if (isNotificationShowing) {
+      earnedNotificationQueue.push(info);
+      return;
     }
-  }
+    isNotificationShowing = true;
 
-  notificationWindow.setAlwaysOnTop(true, 'screen-saver');
-  notificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  notificationWindow.setFullScreenable(false);
-  notificationWindow.setFocusable(false);
-  notificationWindow.setIgnoreMouseEvents(true, { forward: true });
-  notificationWindow.info = info;
+    await startEngines();
+    await getCachedData(info);
+    closePuppeteer();
+    const message = {
+      name: info.game.name,
+      displayName: info.a.displayName || '',
+      description: info.a.description || '',
+      icon: pathToFileURL(await fetchIcon(info.a.icon, info.appid)).href,
+      icon_gray: pathToFileURL(await fetchIcon(info.a.icongray, info.appid)).href,
+      preset: configJS.overlay.preset,
+      position: configJS.overlay.position,
+      scale: parseFloat(configJS.overlay.scale),
+    };
+    if (MainWin) MainWin.webContents.send('achievement-unlock', { appid: info.appid, ach_data: info.a });
+
+    const display = require('electron').screen.getPrimaryDisplay();
+    const { width, height } = display.workAreaSize;
+
+    const preset = message.preset || 'default';
+    const presetFolder = path.join(manifest.config.debug ? path.join(__dirname, '../') : userData, 'presets', preset);
+    const presetHtml = path.join(presetFolder, 'index.html');
+    const position = message.position || 'center-bot';
+    const scale = parseFloat(message.scale * 0.01 || 1);
+
+    const { width: windowWidth, height: windowHeight } = getPresetDimensions(presetFolder);
+
+    const scaledWidth = windowWidth * scale;
+    const scaledHeight = windowHeight * scale;
+
+    let x = 0,
+      y = 0;
+
+    if (position.includes('left')) {
+      x = 20;
+    } else if (position.includes('right')) {
+      x = width - scaledWidth - 20;
+    } else if (position.includes('center')) {
+      x = Math.floor(width / 2 - scaledWidth / 2);
+    }
+
+    if (position.includes('top')) {
+      y = 10;
+    } else if (position.includes('bot')) {
+      y = height - Math.round(scaledHeight) - 20;
+    } else if (position.includes('mid')) {
+      y = height / 2 - Math.round(scaledHeight / 2);
+    }
+
+    notificationWindow = new BrowserWindow({
+      width: scaledWidth,
+      height: scaledHeight,
+      x,
+      y,
+      transparent: true,
+      frame: false,
+      show: false,
+      alwaysOnTop: true,
+      focusable: true,
+      resizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../overlayPreload.js'),
+        additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
+        contextIsolation: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+      },
+    });
+
+    if (manifest.config.debug) {
+      notificationWindow.webContents.openDevTools({ mode: 'undocked' });
+      notificationWindow.isDev = true;
+      console.info((({ node, electron, chrome }) => ({ node, electron, chrome }))(process.versions));
+      try {
+        const contextMenu = require('electron-context-menu')({
+          append: (defaultActions, params, browserWindow) => [
+            {
+              label: 'Reload',
+              visible: params,
+              click: () => {
+                notificationWindow.reload();
+              },
+            },
+          ],
+        });
+      } catch (err) {
+        dialog.showMessageBoxSync({
+          type: 'warning',
+          title: 'Context Menu',
+          message: 'Failed to initialize context menu.',
+          detail: `${err}`,
+        });
+      }
+    }
+
+    notificationWindow.setAlwaysOnTop(true, 'screen-saver');
+    notificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    notificationWindow.setFullScreenable(false);
+    notificationWindow.setFocusable(false);
+    notificationWindow.setIgnoreMouseEvents(true, { forward: true });
+    notificationWindow.info = info;
 
   let soundFile;
   if (configJS.notification_toast.customToastAudio === '2' || configJS.notification_toast.customToastAudio === '1') {
@@ -1472,160 +1483,182 @@ async function createNotificationWindow(info) {
     player.play(soundFile);
   });
 
-  notificationWindow.on('closed', async () => {
-    isNotificationShowing = false;
-    notificationWindow = null;
-    if (earnedNotificationQueue.length > 0) createNotificationWindow(earnedNotificationQueue.shift());
-  });
+    notificationWindow.on('closed', async () => {
+      isNotificationShowing = false;
+      notificationWindow = null;
+      if (earnedNotificationQueue.length > 0) {
+        createNotificationWindow(earnedNotificationQueue.shift());
+        return;
+      }
+      if (shouldQuitApp()) app.quit();
+    });
 
-  notificationWindow.webContents.on('console-message', (e, level, message, line, sourceID) => {
-    debug.log(message, sourceID, line);
-  });
+    notificationWindow.webContents.on('console-message', (e, level, message, line, sourceID) => {
+      debug.log(message, sourceID, line);
+    });
 
-  notificationWindow.loadFile(presetHtml);
+    notificationWindow.loadFile(presetHtml);
+  } catch (e) {
+    debug.log('Error creating notification window:', e);
+    if (shouldQuitApp()) app.quit();
+  }
 }
 
 async function createPlaytimeWindow(info) {
-  if (isplaytimeWindowShowing) {
-    playtimeQueue.push(info);
-    return;
+  try {
+    if (isplaytimeWindowShowing) {
+      playtimeQueue.push(info);
+      return;
+    }
+    isplaytimeWindowShowing = true;
+
+    const { width: screenWidth } = require('electron').screen.getPrimaryDisplay().workAreaSize;
+    const winWidth = 460;
+    const winHeight = 340;
+    const x = Math.floor((screenWidth - winWidth) / 2);
+    const y = 40;
+
+    playtimeWindow = new BrowserWindow({
+      width: winWidth,
+      height: winHeight,
+      x,
+      y,
+      frame: false,
+      type: 'notification',
+      alwaysOnTop: true,
+      transparent: true,
+      resizable: false,
+      show: false,
+      skipTaskbar: true,
+      focusable: false,
+      fullscreenable: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../overlayPreload.js'),
+        additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
+        contextIsolation: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+      },
+    });
+    playtimeWindow.setIgnoreMouseEvents(true, { forward: true });
+    playtimeWindow.setAlwaysOnTop(true, 'screen-saver');
+    playtimeWindow.setVisibleOnAllWorkspaces(true);
+    playtimeWindow.setFullScreenable(false);
+    playtimeWindow.setFocusable(false);
+
+    const desc = info.description;
+    await startEngines();
+    await getCachedData(info);
+    closePuppeteer();
+    info.description = desc;
+    info.headerUrl = pathToFileURL(await fetchIcon(info.game.img.header, info.appid)).href;
+    playtimeWindow.once('ready-to-show', () => {
+      if (playtimeWindow && !playtimeWindow.isDestroyed()) {
+        playtimeWindow.showInactive();
+
+        //const prefs = fs.existsSync(preferencesPath) ? JSON.parse(fs.readFileSync(preferencesPath, 'utf8')) : {};
+        const scale = 1; //prefs.notificationScale || 1;
+
+        playtimeWindow.webContents.send('show-playtime', {
+          ...info,
+          scale,
+        });
+      }
+    });
+    ipcMain.once('close-playtime-window', () => {
+      if (playtimeWindow && !playtimeWindow.isDestroyed()) {
+        playtimeWindow.close();
+      }
+    });
+
+    playtimeWindow.on('closed', () => {
+      isplaytimeWindowShowing = false;
+      playtimeWindow = null;
+      if (playtimeQueue.length > 0) {
+        createPlaytimeWindow(playtimeQueue.shift());
+        return;
+      }
+      if (shouldQuitApp()) app.quit();
+    });
+
+    playtimeWindow.loadFile(path.join(manifest.config.debug ? path.join(__dirname, '..') : userData, 'view', 'playtime.html'));
+  } catch (e) {
+    debug.log('Error creating playtime window:', e);
+    if (shouldQuitApp()) app.quit();
   }
-  isplaytimeWindowShowing = true;
-
-  const { width: screenWidth } = require('electron').screen.getPrimaryDisplay().workAreaSize;
-  const winWidth = 460;
-  const winHeight = 340;
-  const x = Math.floor((screenWidth - winWidth) / 2);
-  const y = 40;
-
-  playtimeWindow = new BrowserWindow({
-    width: winWidth,
-    height: winHeight,
-    x,
-    y,
-    frame: false,
-    type: 'notification',
-    alwaysOnTop: true,
-    transparent: true,
-    resizable: false,
-    show: false,
-    skipTaskbar: true,
-    focusable: false,
-    fullscreenable: false,
-    webPreferences: {
-      preload: path.join(__dirname, '../overlayPreload.js'),
-      additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
-  });
-  playtimeWindow.setIgnoreMouseEvents(true, { forward: true });
-  playtimeWindow.setAlwaysOnTop(true, 'screen-saver');
-  playtimeWindow.setVisibleOnAllWorkspaces(true);
-  playtimeWindow.setFullScreenable(false);
-  playtimeWindow.setFocusable(false);
-
-  const desc = info.description;
-  await startEngines();
-  await getCachedData(info);
-  closePuppeteer();
-  info.description = desc;
-  info.headerUrl = pathToFileURL(await fetchIcon(info.game.img.header, info.appid)).href;
-  playtimeWindow.once('ready-to-show', () => {
-    if (playtimeWindow && !playtimeWindow.isDestroyed()) {
-      playtimeWindow.showInactive();
-
-      //const prefs = fs.existsSync(preferencesPath) ? JSON.parse(fs.readFileSync(preferencesPath, 'utf8')) : {};
-      const scale = 1; //prefs.notificationScale || 1;
-
-      playtimeWindow.webContents.send('show-playtime', {
-        ...info,
-        scale,
-      });
-    }
-  });
-  ipcMain.once('close-playtime-window', () => {
-    if (playtimeWindow && !playtimeWindow.isDestroyed()) {
-      playtimeWindow.close();
-    }
-  });
-
-  playtimeWindow.on('closed', () => {
-    isplaytimeWindowShowing = false;
-    playtimeWindow = null;
-    if (playtimeQueue.length > 0) {
-      createPlaytimeWindow(playtimeQueue.shift());
-    }
-  });
-
-  playtimeWindow.loadFile(path.join(manifest.config.debug ? path.join(__dirname, '..') : userData, 'view', 'playtime.html'));
 }
 
 async function createProgressWindow(info) {
-  if (isProgressWindowShowing) {
-    if (progressWindow.appid !== info.appid) {
-      progressQueue.push(info);
-      return;
+  try {
+    if (isProgressWindowShowing) {
+      if (progressWindow.appid !== info.appid) {
+        progressQueue.push(info);
+        return;
+      }
+      progressWindow.close();
     }
-    progressWindow.close();
+    isProgressWindowShowing = true;
+    const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize;
+
+    progressWindow = new BrowserWindow({
+      width: 350,
+      height: 150,
+      x: 20,
+      y: height - 140,
+      transparent: true,
+      frame: false,
+      alwaysOnTop: true,
+      focusable: true,
+      resizable: false,
+      fullscreenable: false,
+      skipTaskbar: true,
+      hasShadow: false,
+      show: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../overlayPreload.js'),
+        additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
+        contextIsolation: true,
+        nodeIntegration: false,
+        backgroundThrottling: false,
+      },
+    });
+
+    progressWindow.setAlwaysOnTop(true, 'screen-saver');
+    progressWindow.setVisibleOnAllWorkspaces(true);
+    progressWindow.setFullScreenable(false);
+    progressWindow.setFocusable(true);
+    progressWindow.setIgnoreMouseEvents(true, { forward: true });
+
+    await startEngines();
+    await getCachedData(info);
+    closePuppeteer();
+    info.a.icongray = pathToFileURL(await fetchIcon(info.a.icongray, info.appid)).href;
+
+    progressWindow.webContents.on('did-finish-load', () => {
+      progressWindow.showInactive();
+      progressWindow.webContents.send('show-progress', info);
+    });
+
+    progressWindow.on('closed', () => {
+      isProgressWindowShowing = false;
+      progressWindow = null;
+      if (progressQueue.length > 0) {
+        createProgressWindow(progressQueue.shift());
+        return;
+      }
+      if (shouldQuitApp()) app.quit();
+    });
+
+    setTimeout(() => {
+      if (progressWindow && !progressWindow.isDestroyed()) progressWindow.close();
+    }, 5000);
+
+    progressWindow.loadFile(path.join(manifest.config.debug ? path.join(__dirname, '..') : userData, 'view/progress.html'));
+    progressWindow.appid = info.appid;
+  } catch (e) {
+    debug.log('Error creating progress window:', e);
+    if (shouldQuitApp()) app.quit();
   }
-  isProgressWindowShowing = true;
-  const { width, height } = require('electron').screen.getPrimaryDisplay().workAreaSize;
-
-  progressWindow = new BrowserWindow({
-    width: 350,
-    height: 150,
-    x: 20,
-    y: height - 140,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    focusable: true,
-    resizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    hasShadow: false,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, '../overlayPreload.js'),
-      additionalArguments: [`--isDev=${app.isDev ? 'true' : 'false'}`, `--userDataPath=${userData}`],
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    },
-  });
-
-  progressWindow.setAlwaysOnTop(true, 'screen-saver');
-  progressWindow.setVisibleOnAllWorkspaces(true);
-  progressWindow.setFullScreenable(false);
-  progressWindow.setFocusable(true);
-  progressWindow.setIgnoreMouseEvents(true, { forward: true });
-
-  await startEngines();
-  await getCachedData(info);
-  closePuppeteer();
-  info.a.icongray = pathToFileURL(await fetchIcon(info.a.icongray, info.appid)).href;
-
-  progressWindow.webContents.on('did-finish-load', () => {
-    progressWindow.showInactive();
-    progressWindow.webContents.send('show-progress', info);
-  });
-
-  progressWindow.on('closed', () => {
-    isProgressWindowShowing = false;
-    progressWindow = null;
-    if (progressQueue.length > 0) {
-      createProgressWindow(progressQueue.shift());
-    }
-  });
-
-  setTimeout(() => {
-    if (progressWindow && !progressWindow.isDestroyed()) progressWindow.close();
-  }, 5000);
-
-  progressWindow.loadFile(path.join(manifest.config.debug ? path.join(__dirname, '..') : userData, 'view/progress.html'));
-  progressWindow.appid = info.appid;
 }
 
 function getPresetDimensions(presetFolder) {
@@ -1642,6 +1675,16 @@ function getPresetDimensions(presetFolder) {
   }
   // Default values if not defined
   return { width: 400, height: 200 };
+}
+
+function shouldQuitApp() {
+  const noMain = !MainWin;
+  const noNotifications = !isNotificationShowing && earnedNotificationQueue.length === 0;
+  const noOverlay = !isOverlayShowing;
+  const noProgress = !isProgressWindowShowing && progressQueue.length === 0;
+  const noPlaytime = !isplaytimeWindowShowing && playtimeQueue.length === 0;
+
+  return noMain && noNotifications && noOverlay && noProgress && noPlaytime;
 }
 
 function parseArgs(args) {
@@ -1757,20 +1800,9 @@ try {
       ipc.window();
       const args = minimist(process.argv.slice(1));
       parseArgs(args);
-      await delay(5000);
-      if (!overlayWindow && !progressWindow && !notificationWindow && !playtimeWindow && !MainWin) app.quit();
     })
     .on('window-all-closed', function () {
-      if (
-        earnedNotificationQueue.length === 0 &&
-        !isNotificationShowing &&
-        playtimeQueue.length === 0 &&
-        !isplaytimeWindowShowing &&
-        !isProgressWindowShowing &&
-        progressQueue.length === 0 &&
-        !isOverlayShowing
-      )
-        app.quit();
+      if (shouldQuitApp()) app.quit();
     })
     .on('web-contents-created', (event, contents) => {
       contents.on('new-window', (event, url) => {
@@ -1780,8 +1812,6 @@ try {
     .on('second-instance', async (event, argv, cwd) => {
       const args = minimist(argv.slice(1));
       parseArgs(args);
-      await delay(5000);
-      if (!overlayWindow && !progressWindow && !notificationWindow && !playtimeWindow && !MainWin) app.quit();
     });
 } catch (err) {
   dialog.showErrorBox('Critical Error', `Failed to initialize:\n${err}`);
