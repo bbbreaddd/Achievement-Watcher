@@ -1221,20 +1221,22 @@ function createMainWindow() {
     Promise.all(isReady).then(() => {
       MainWin.show();
       MainWin.focus();
+      const net = require('net');
+      const PIPE_NAME = '\\\\.\\pipe\\AchievementWatchdogPipe';
+      function checkWatchdogStatus(callback) {
+        const client = net.createConnection(PIPE_NAME);
 
+        client.on('connect', () => {
+          callback(true);
+          client.end();
+        });
+
+        client.on('error', () => {
+          callback(false);
+        });
+      }
       setInterval(() => {
-        const command = `powershell -NoProfile -Command "Get-Process | Where-Object { $_.Path -ne $null } | ForEach-Object { try { $desc = (Get-Item $_.Path).VersionInfo.FileDescription } catch { $desc = 'N/A' }; $memoryUsage = $_.WorkingSet / 1MB; Write-Output ('{0}|{1}|{2}|{3}' -f $_.Name, $_.Id, $desc, $memoryUsage) }"`;
-        let found = false;
-        exec(command, (error, stdout) => {
-          if (!error) {
-            const lines = stdout.trim().split('\r\n');
-            for (const line of lines) {
-              const [name, pid, description, memory] = line.trim().split('|');
-              if (name.toLowerCase() === 'node' && description.toLowerCase().includes('achievement watchdog')) {
-                found = true;
-              }
-            }
-          }
+        checkWatchdogStatus((running) => {
           if (MainWin) MainWin.webContents.send('watchdog-status', found);
         });
       }, 5000);

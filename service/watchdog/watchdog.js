@@ -109,7 +109,13 @@ var app = {
       self.cache = [];
 
       debug.log('Achievement Watchdog starting ...');
+      const net = require('net');
+      const PIPE_NAME = '\\\\.\\pipe\\AchievementWatchdogPipe';
 
+      const server = net.createServer(() => {});
+      server.listen(PIPE_NAME, () => {
+        console.log('Watchdog process running, pipe open');
+      });
       processPriority
         .set('high priority')
         .then(() => {
