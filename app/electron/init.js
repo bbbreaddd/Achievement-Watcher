@@ -4,13 +4,7 @@ const path = require('path');
 const { app } = require('electron');
 app.setName('Achievement Watcher');
 app.setPath('userData', path.join(app.getPath('appData'), app.getName()));
-const { BrowserFetcher } = require('puppeteer');
 const CHROMIUM_REVISION = '1108766';
-const puppeteerCore = require('puppeteer');
-const ChromeLauncher = require('chrome-launcher');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin());
 const { BrowserWindow, dialog, session, shell, ipcMain, globalShortcut } = require('electron');
 const { autoUpdater } = require('electron-updater');
 autoUpdater.autoInstallOnAppQuit = false;
@@ -28,18 +22,23 @@ const { pathToFileURL } = require('url');
 const fetch = require('node-fetch');
 const BASE_URL = 'https://www.steamgriddb.com/api/v2';
 const API_KEY = '2a9d32ddd0bfe4e1191b4f6ff56fef60'; // TODO: remove this and load from config file
-const sharp = require('sharp');
-const SteamUser = require('steam-user');
-const client = new SteamUser();
+
+let client; //lazyload SteamUser
+let clientLoginPromise;
 
 function clientLogOn() {
+  const SteamUser = require('steam-user');
+  if (!client) client = new SteamUser();
   if (client.steamID) return Promise.resolve();
-  return new Promise((resolve) => {
+  if (clientLoginPromise) return clientLoginPromise;
+  clientLoginPromise = new Promise((resolve) => {
     client.logOn({ anonymous: true });
     client.on('loggedOn', () => {
+      clientLoginPromise = null;
       resolve();
     });
   });
+  return clientLoginPromise;
 }
 
 const manifest = require('../package.json');
@@ -654,6 +653,7 @@ ipcMain.on('stylize-background-for-appid', async (event, arg) => {
   const imageUrl = arg.background;
   const t = path.parse(imageUrl).base;
   const outputPath = path.join(app.getPath('userData'), 'steam_cache', 'icon', arg.appid, t);
+  const sharp = require('sharp');
 
   try {
     const res = await fetch(imageUrl);
@@ -744,6 +744,7 @@ function delay(ms) {
 }
 
 async function ensureChromium() {
+  const { BrowserFetcher } = require('puppeteer');
   const chromium = path.join(process.env['APPDATA'], 'Achievement Watcher', 'Chromium');
   const fetcher = new BrowserFetcher({ path: chromium });
   const revisionInfo = fetcher.revisionInfo(CHROMIUM_REVISION);
@@ -753,6 +754,10 @@ async function ensureChromium() {
 }
 
 async function startPuppeteer(headless, strip) {
+  const puppeteer = require('puppeteer-extra');
+  const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+  puppeteer.use(StealthPlugin());
+  const ChromeLauncher = require('chrome-launcher');
   const installedChromePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' || ChromeLauncher.Launcher.getInstallations()[0];
   const chromiumPath = fs.existsSync(installedChromePath) ? installedChromePath : (await ensureChromium()).executablePath;
   if (!puppeteerWindow.browser)
@@ -1460,28 +1465,28 @@ async function createNotificationWindow(info) {
     notificationWindow.setIgnoreMouseEvents(true, { forward: true });
     notificationWindow.info = info;
 
-  let soundFile;
-  if (configJS.notification_toast.customToastAudio === '2' || configJS.notification_toast.customToastAudio === '1') {
-    let toastAudio = require(path.join(__dirname, '../util/toastAudio.js'));
-    soundFile =
-      configJS.notification_toast.customToastAudio === '1'
-        ? path.join(process.env.SystemRoot || process.env.WINDIR, 'media', toastAudio.getDefault())
-        : toastAudio.getCustom();
-  }
-  notificationWindow.webContents.on('did-finish-load', () => {
-    notificationWindow.showInactive();
-    notificationWindow.webContents.send('set-window-scale', scale);
-    notificationWindow.webContents.send('set-animation-scale', (configJS.overlay?.duration ?? 1) * 0.01);
-    notificationWindow.webContents.send('show-notification', {
-      game: message.name,
-      displayName: message.displayName,
-      description: message.description,
-      iconPath: message.icon,
-      scale,
+    let soundFile;
+    if (configJS.notification_toast.customToastAudio === '2' || configJS.notification_toast.customToastAudio === '1') {
+      let toastAudio = require(path.join(__dirname, '../util/toastAudio.js'));
+      soundFile =
+        configJS.notification_toast.customToastAudio === '1'
+          ? path.join(process.env.SystemRoot || process.env.WINDIR, 'media', toastAudio.getDefault())
+          : toastAudio.getCustom();
+    }
+    notificationWindow.webContents.on('did-finish-load', () => {
+      notificationWindow.showInactive();
+      notificationWindow.webContents.send('set-window-scale', scale);
+      notificationWindow.webContents.send('set-animation-scale', (configJS.overlay?.duration ?? 1) * 0.01);
+      notificationWindow.webContents.send('show-notification', {
+        game: message.name,
+        displayName: message.displayName,
+        description: message.description,
+        iconPath: message.icon,
+        scale,
+      });
+      createOverlayWindow({ appid: info.appid, action: 'refresh' });
+      player.play(soundFile);
     });
-    createOverlayWindow({ appid: info.appid, action: 'refresh' });
-    player.play(soundFile);
-  });
 
     notificationWindow.on('closed', async () => {
       isNotificationShowing = false;
