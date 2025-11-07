@@ -7,7 +7,6 @@ const request = require('request-zero');
 
 const debug = require('../util/log.js');
 
-
 const cdnProviders = [
   'https://cdn.akamai.steamstatic.com/steam/apps/',
   'https://cdn.cloudflare.steamstatic.com/steam/apps/',
@@ -99,4 +98,4 @@ module.exports = async (url, appID) => {
     }
     return url;
   }
-});
+};
