@@ -480,7 +480,7 @@ async function getSteamData(request) {
 
     await delay(1000);
   } catch (err) {
-    console.log(err);
+    debug.log(err);
   }
   return {};
 }
@@ -620,7 +620,7 @@ ipcMain.on('get-images-for-game', async (event, arg) => {
     const searchData = await searchRes.json();
     const game = searchData.data[0];
     if (!game) {
-      console.log('Game not found');
+      debug.log('Game not found');
       return;
     }
 
@@ -724,7 +724,6 @@ ipcMain.handle('get-achievements', async (event, appid) => {
 
 ipcMain.handle('start-watchdog', async (event, arg) => {
   event.sender.send('reset-watchdog-status');
-  console.log('starting watchdog');
   const wd = spawn(
     path.join(manifest.config.debug ? path.join(__dirname, '../../service/') : path.dirname(process.execPath), 'nw/nw.exe'),
     ['-config', 'watchdog.json'],
@@ -736,7 +735,6 @@ ipcMain.handle('start-watchdog', async (event, arg) => {
     }
   );
   wd.unref(); // Let it run independently
-  console.log('Started watchdog.');
 });
 
 function delay(ms) {
@@ -820,7 +818,7 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
             });
             info.users = users;
           } catch (e) {
-            console.log(e);
+            debug.log(e);
           }
           return;
         }
@@ -854,7 +852,7 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
           info.achievements = results;
           debug.log(`[${info.appid}] steamhunters took ${(Date.now() - start) / 1000}s`);
         } catch (e) {
-          console.log(e);
+          debug.log(e);
         }
         return;
       }
@@ -864,7 +862,7 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
         try {
           await page.goto(alternate.url, { waitUntil: 'domcontentloaded' });
         } catch (e) {
-          console.log(e);
+          debug.log(e);
         }
         const achs = await page.evaluate(() => {
           return Array.from(document.querySelectorAll('.achieveRow')).map((row) => {
@@ -883,7 +881,7 @@ async function scrapeWithPuppeteer(info = { appid: 269770 }, alternate) {
       try {
         await page.goto(url, { waitUntil: 'domcontentloaded' });
       } catch (e) {
-        console.log(e);
+        debug.log(e);
       }
       const url3 = page.url();
       await page.goto(`${url3}/stats/${info.appid}/?tab=achievements`, { waitUntil: 'domcontentloaded' });
@@ -1105,7 +1103,7 @@ function searchForSteamAppId(info = { name: '' }) {
           (() => {
             const rows = document.querySelectorAll('#table-sortable tbody tr.app');
             const matches = [];
-            console.log(rows);
+            debug.log(rows);
             rows.forEach(row => {
               const appid = row.getAttribute('data-appid');
               const nameLink = row.querySelector('td:nth-child(3) a');
@@ -1701,7 +1699,7 @@ function parseArgs(args) {
   let ach = args['ach']; // achievement name
   let description = args['description']; // text
   let count = args['count'] || '0/100'; // count / max_count
-  console.log('opening ' + windowType + ' window');
+  debug.log('opening ' + windowType + ' window');
   switch (windowType) {
     case 'playtime':
       createPlaytimeWindow({ appid, source, description });
