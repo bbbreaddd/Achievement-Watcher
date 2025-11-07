@@ -1235,7 +1235,7 @@ function createMainWindow() {
       }
       setInterval(() => {
         checkWatchdogStatus((running) => {
-          if (MainWin) MainWin.webContents.send('watchdog-status', found);
+          if (MainWin) MainWin.webContents.send('watchdog-status', running);
         });
       }, 5000);
     });
@@ -1462,7 +1462,10 @@ async function createNotificationWindow(info) {
     notificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     notificationWindow.setFullScreenable(false);
     notificationWindow.setFocusable(false);
-    notificationWindow.setIgnoreMouseEvents(true, { forward: true });
+    setTimeout(() => {
+      notificationWindow.setIgnoreMouseEvents(true, { forward: true });
+    }, 50);
+    //notificationWindow.setIgnoreMouseEvents(true, { forward: true });
     notificationWindow.info = info;
 
     let soundFile;
@@ -1545,7 +1548,9 @@ async function createPlaytimeWindow(info) {
         backgroundThrottling: false,
       },
     });
-    playtimeWindow.setIgnoreMouseEvents(true, { forward: true });
+    setTimeout(() => {
+      playtimeWindow.setIgnoreMouseEvents(true, { forward: true });
+    }, 50);
     playtimeWindow.setAlwaysOnTop(true, 'screen-saver');
     playtimeWindow.setVisibleOnAllWorkspaces(true);
     playtimeWindow.setFullScreenable(false);
@@ -1632,7 +1637,9 @@ async function createProgressWindow(info) {
     progressWindow.setVisibleOnAllWorkspaces(true);
     progressWindow.setFullScreenable(false);
     progressWindow.setFocusable(true);
-    progressWindow.setIgnoreMouseEvents(true, { forward: true });
+    setTimeout(() => {
+      progressWindow.setIgnoreMouseEvents(true, { forward: true });
+    }, 50);
 
     await startEngines();
     await getCachedData(info);
