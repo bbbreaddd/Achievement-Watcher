@@ -15,7 +15,7 @@ module.exports.setUserDataPath = (p) => {
 
 module.exports.load = () => {
   let options;
-  console.log('Loading settings');
+  debug.log('Loading settings');
   try {
     options = ini.parse(fs.readFileSync(filename, 'utf8'));
 
@@ -132,11 +132,11 @@ module.exports.load = () => {
     //Toast
 
     if (
-      options.notification_toast.customToastAudio != 0 &&
-      options.notification_toast.customToastAudio != 1 &&
-      options.notification_toast.customToastAudio != 2
+      options.notification_toast.customToastAudio != '0' &&
+      options.notification_toast.customToastAudio != '1' &&
+      options.notification_toast.customToastAudio != '2'
     ) {
-      options.notification_toast.customToastAudio = 1;
+      options.notification_toast.customToastAudio = '1';
     }
 
     if (
@@ -313,7 +313,7 @@ module.exports.load = () => {
         playtime: false,
       },
       notification_toast: {
-        customToastAudio: 1,
+        customToastAudio: '1',
         toastSouvenir: 0,
         groupToast: false,
       },
