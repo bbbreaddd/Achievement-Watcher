@@ -1710,6 +1710,7 @@ function parseArgs(args) {
       break;
     case 'main':
     default:
+      autoUpdater.checkForUpdatesAndNotify();
       checkResources();
       createMainWindow();
       break;
@@ -1796,7 +1797,6 @@ try {
 
   app
     .on('ready', async function () {
-      autoUpdater.checkForUpdatesAndNotify();
       ipc.window();
       const args = minimist(process.argv.slice(1));
       parseArgs(args);
