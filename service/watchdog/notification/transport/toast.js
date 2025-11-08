@@ -2,6 +2,7 @@
 
 const toast = require('powertoast');
 const player = require('sound-play');
+const path = require('path');
 
 module.exports = async (message, options) => {
   let soundFile;
