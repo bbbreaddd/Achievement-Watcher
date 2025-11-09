@@ -1348,7 +1348,7 @@ async function createOverlayWindow(info) {
       overlayWindow = null;
     });
   } catch (e) {
-    debug.log('Error creating overlay window,', e);
+    debug.log(`Error creating overlay window, ${e}`);
     if (shouldQuitApp()) app.quit();
   }
 }
@@ -1507,7 +1507,7 @@ async function createNotificationWindow(info) {
 
     notificationWindow.loadFile(presetHtml);
   } catch (e) {
-    debug.log('Error creating notification window:', e);
+    debug.log(`Error creating notification window: ${e}`);
     if (shouldQuitApp()) app.quit();
   }
 }
@@ -1593,7 +1593,7 @@ async function createPlaytimeWindow(info) {
 
     playtimeWindow.loadFile(path.join(manifest.config.debug ? path.join(__dirname, '..') : userData, 'view', 'playtime.html'));
   } catch (e) {
-    debug.log('Error creating playtime window:', e);
+    debug.log(`Error creating playtime window: ${e}`);
     if (shouldQuitApp()) app.quit();
   }
 }
@@ -1668,7 +1668,7 @@ async function createProgressWindow(info) {
     progressWindow.loadFile(path.join(manifest.config.debug ? path.join(__dirname, '..') : userData, 'view/progress.html'));
     progressWindow.appid = info.appid;
   } catch (e) {
-    debug.log('Error creating progress window:', e);
+    debug.log(`Error creating progress window: ${e}`);
     if (shouldQuitApp()) app.quit();
   }
 }

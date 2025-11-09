@@ -2,7 +2,7 @@
 
 const path = require('path');
 const urlParser = require('url');
-const fs = require('@xan105/fs');
+const fs = require('fs');
 const request = require('request-zero');
 
 const debug = require('../util/log.js');
