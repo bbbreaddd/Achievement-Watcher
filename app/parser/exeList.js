@@ -2,13 +2,13 @@
 
 const remote = require('@electron/remote');
 const path = require('path');
-const ffs = require('@xan105/fs');
+const fs = require('fs');
 
 const file = path.join(remote.app.getPath('userData'), 'cfg/exeList.db');
 
 async function getCurrentList() {
   try {
-    return JSON.parse(await ffs.readFile(file, 'utf8'));
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (err) {
     if (err.code === 'ENOENT') {
       await module.exports.save([]);
@@ -21,16 +21,22 @@ async function getCurrentList() {
 
 module.exports.get = async (appid) => {
   let defaultCfg = { appid, exe: '', args: '' };
-  let currentList = await getCurrentList();
-  let found = currentList.find((app) => app.appid === appid);
-  return found ? found : defaultCfg;
+  try {
+    let defaultCfg = { appid, exe: '', args: '' };
+    let currentList = await getCurrentList();
+    let found = currentList.find((app) => app.appid === appid);
+    return found ? found : defaultCfg;
+  } catch (err) {
+    debug.log(err);
+    return defaultCfg;
+  }
 };
 
 module.exports.save = async (data) => {
   try {
-    await ffs.writeFile(file, JSON.stringify(data, null, 2), 'utf8');
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
   } catch (err) {
-    throw err;
+    debug.log(err);
   }
 };
 
@@ -49,6 +55,6 @@ module.exports.add = async (app) => {
     await this.save(currentList);
     debug.log('Done.');
   } catch (err) {
-    throw err;
+    debug.log(err);
   }
 };
