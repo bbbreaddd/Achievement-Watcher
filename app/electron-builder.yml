@@ -36,20 +36,26 @@ files:
   - '!presets/**'
 
 extraFiles:
-  - from: ../service
-    to: .
+  - from: ../watchdog
+    to: ./watchdog
     filter:
       - '**/*'
-      - '!buildme.cmd'
       - '!watchdog/_wip_/**'
       - '!watchdog/patches/**'
-      - '!updater'
-      - '!updater/**'
 
-  - from: ../setup/winmedia
+  - from: ../node
+    to: ./node
+
+  - from: ../nw
+    to: ./nw
+
+  - from: ../obs
+    to: ./obs
+
+  - from: ./media
     to: resources/userData/Media
 
-  - from: ../setup/Source
+  - from: ./Source
     to: resources/userData/Source
 
   - from: ./presets
@@ -58,10 +64,10 @@ extraFiles:
   - from: ./view
     to: resources/userData/view
 
-  - from: ../service/obs/config/obs-studio/basic/profiles
+  - from: ../obs/config/obs-studio/basic/profiles
     to: resources/userData/obs
 
-  - from: ../service/obs/config/obs-studio/basic/scenes
+  - from: ../obs/config/obs-studio/basic/scenes
     to: resources/userData/obs
     filter:
       - '!**.json.bak'
