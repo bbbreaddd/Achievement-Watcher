@@ -10,6 +10,7 @@ module.exports.scan = async () => {
       glr: listRegistryAllSubkeys('HKCU', 'SOFTWARE/GLR/AppID'),
       gl2020: listRegistryAllSubkeys('HKCU', 'SOFTWARE/GL2020/AppID'),
       gl2024: listRegistryAllSubkeys('HKCU', 'SOFTWARE/GL2024/AppID'),
+      gl2025: listRegistryAllSubkeys('HKCU', 'SOFTWARE/GL2025/AppID'),
     };
 
     if (keys.glr) {
@@ -49,8 +50,8 @@ module.exports.scan = async () => {
         } catch {}
       }
     }
-    if (keys.gl2020) {
-      for (let key of keys.gl2020) {
+    if (keys.gl2024) {
+      for (let key of keys.gl2024) {
         try {
           let glr_ach_enable = parseInt(readRegistryInteger('HKCU', `SOFTWARE/GL2024/AppID/${key}`, 'SkipStatsAndAchievements'));
           if (glr_ach_enable === 0) {
@@ -61,6 +62,24 @@ module.exports.scan = async () => {
                 type: 'reg',
                 root: 'HKCU',
                 path: `SOFTWARE/GL2024/AppID/${key}/Achievements`,
+              },
+            });
+          }
+        } catch {}
+      }
+    }
+    if (keys.gl2025) {
+      for (let key of keys.gl2025) {
+        try {
+          let glr_ach_enable = parseInt(readRegistryInteger('HKCU', `SOFTWARE/GL2025/AppID/${key}`, 'SkipStatsAndAchievements'));
+          if (glr_ach_enable === 0) {
+            data.push({
+              appid: key,
+              source: 'GreenLuma 2025',
+              data: {
+                type: 'reg',
+                root: 'HKCU',
+                path: `SOFTWARE/GL2025/AppID/${key}/Achievements`,
               },
             });
           }
