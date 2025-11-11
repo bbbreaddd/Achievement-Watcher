@@ -1245,7 +1245,7 @@ function createMainWindow() {
       if (shouldQuitApp()) app.quit();
     });
   } catch (e) {
-    debug.log('Error creating main window,', e);
+    debug.log(`Error creating main window: ${e}`);
     if (shouldQuitApp()) app.quit();
   }
 }
