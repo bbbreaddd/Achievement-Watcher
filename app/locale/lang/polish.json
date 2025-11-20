@@ -169,8 +169,8 @@
       "custom": "Folder użytkownika",
       "addInfo": [
         "Wybierz folder który zawiera foldery z identyfikatorami gier.",
-        "Dla ALI213, Hoodlum, RPCS3 wybierz folder w którym",
-        "są pliki: ALI213.ini, valve.ini, hlm.ini, ds.ini lub RPCS3.exe."
+        "Dla ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 wybierz folder w którym",
+        "są pliki: ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini lub RPCS3.exe."
       ],
       "add": "Dodaj folder"
     },

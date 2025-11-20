@@ -174,8 +174,8 @@
       "custom": "Usar Diretório",
       "addInfo": [
         "Selecione uma pasta que contenha a(s) pasta(s) appid",
-        "Para ALI213, Hoodlum, RPCS3 por favor selecione a pasta onde o",
-        "ficheiro ALI213.ini, valve.ini, hlm.ini, ds.ini or RPCS3.exe está localizado."
+        "Para ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 por favor selecione a pasta onde o",
+        "ficheiro ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini or RPCS3.exe está localizado."
       ],
       "add": "Adicionar pasta"
     },

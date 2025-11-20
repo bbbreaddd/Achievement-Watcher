@@ -174,8 +174,8 @@
       "custom": "Cartella utente",
       "addInfo": [
         "Selezionate una cartella che contenga cartella(e) appid.",
-        "Per ALI213, Hoodlum, RPCS3 seleziona una cartella dove è",
-        "presente uno di questi file: ALI213.ini, valve.ini, hlm.ini, ds.ini o RPCS3.exe."
+        "Per ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 seleziona una cartella dove è",
+        "presente uno di questi file: ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini o RPCS3.exe."
       ],
       "add": "Aggiungi una cartella"
     },

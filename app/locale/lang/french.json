@@ -173,8 +173,8 @@
       "custom": "Répertoire de l'utilisateur",
       "addInfo": [
         "Sélectionnez un dossier contenant des dossiers appid.",
-        "Pour ALI213, Hoodlum, RPCS3, sélectionnez un dossier dans lequel",
-        "Le fichier ALI213.ini, valve.ini, hlm.ini, ds.ini ou RPCS3.exe est situé."
+        "Pour ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 sélectionnez un dossier dans lequel",
+        "Le fichier ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini ou RPCS3.exe est situé."
       ],
       "add": "Ajouter un dossier"
     },

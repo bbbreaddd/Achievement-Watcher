@@ -170,8 +170,8 @@
       "custom": "Пользовательские папки",
       "addInfo": [
         "Выберите папку, содержащую папки appid.",
-        "Для ALI213, Hoodlum, RPCS3 выберите папку, в которой",
-        "находится файл ALI213.ini, valve.ini, hlm.ini, ds.ini или RPCS3.exe."
+        "Для ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 выберите папку, в которой",
+        "находится файл ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini или RPCS3.exe."
       ],
       "add": "Добавить папку"
     },
