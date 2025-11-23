@@ -169,8 +169,8 @@
       "custom": "Directorios de usuario",
       "addInfo": [
         "Seleccionar una carpeta que contenga carpetas appid.",
-        "Para ALI213, Hoodlum, RPCS3 por favor, seleccionar la carpeta donde",
-        "los archivos ALI213.ini, valve.ini, hlm.ini, ds.ini o RPCS3.exe se encuentran."
+        "Para ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 por favor, seleccionar la carpeta donde",
+        "los archivos ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini o RPCS3.exe se encuentran."
       ],
       "add": "Agregar una carpeta"
     },

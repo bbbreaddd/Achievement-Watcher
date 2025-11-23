@@ -190,8 +190,8 @@
       "custom": "Kullanıcı Dizini",
       "addInfo": [
         "AppID içeren bir klasör seçin.",
-        "ALI213, Hoodlum, RPCS3 için lütfen klasör seçin",
-        "ALI213.ini, valve.ini, hlm.ini, ds.ini or RPCS3.exe dosyası bulunur."
+        "ALI213, Hoodlum, Tenoke, UniverseLAN, RPCS3 için lütfen klasör seçin",
+        "ALI213.ini, valve.ini, hlm.ini, ds.ini, steam_api.ini, SteamConfig.ini, tenoke.ini, UniverseLAN.ini ve RPCS3.exe dosyası bulunur."
       ],
       "add": "Klasör ekle"
     },
