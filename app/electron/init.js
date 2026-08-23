@@ -1210,6 +1210,7 @@ function createMainWindow() {
         }); //Window is loaded and ready to be drawn
       }),
       new Promise(function (resolve) {
+        ipcMain.removeHandler('components-loaded');
         ipcMain.handleOnce('components-loaded', () => {
           return resolve();
         }); //Wait for custom event
@@ -1771,7 +1772,9 @@ function checkResources() {
   if (!fs.existsSync(path.join(app.getPath('appData'), 'obs-studio', 'basic', 'profiles', 'AW'))) {
     const profile = path.join(resourcesPath, 'obs', 'AW');
     copyFolderRecursive(profile, path.join(app.getPath('appData'), 'obs-studio', 'basic', 'profiles', 'AW'));
-    fs.copyFileSync(path.join(resourcesPath, 'obs', 'AW.json'), path.join(app.getPath('appData'), 'obs-studio', 'basic', 'scenes', 'AW.json'));
+    const scenesPath = path.join(app.getPath('appData'), 'obs-studio', 'basic', 'scenes');
+    fs.mkdirSync(scenesPath, { recursive: true });
+    fs.copyFileSync(path.join(resourcesPath, 'obs', 'AW.json'), path.join(scenesPath, 'AW.json'));
   }
 
   app.setLoginItemSettings({
