@@ -38,6 +38,16 @@ pub fn discover_files(locations: &[SourceLocation]) -> Vec<PathBuf> {
                 continue;
             }
             let name = entry.file_name().to_string_lossy();
+            let is_goldberg_schema = name.eq_ignore_ascii_case("achievements.json")
+                && entry
+                    .path()
+                    .parent()
+                    .and_then(Path::file_name)
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|parent| parent.eq_ignore_ascii_case("steam_settings"));
+            if is_goldberg_schema {
+                continue;
+            }
             if ACHIEVEMENT_FILES
                 .iter()
                 .any(|candidate| name.eq_ignore_ascii_case(candidate))
@@ -173,5 +183,24 @@ mod tests {
             .as_deref(),
             Some("504230")
         );
+    }
+
+    #[test]
+    fn ignores_goldberg_schema_but_keeps_live_json() {
+        let directory = tempfile::tempdir().unwrap();
+        let schema = directory.path().join("game/steam_settings");
+        let live = directory.path().join("saves/400");
+        std::fs::create_dir_all(&schema).unwrap();
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::write(schema.join("achievements.json"), "[]").unwrap();
+        std::fs::write(live.join("achievements.json"), "{}").unwrap();
+        let files = discover_files(&[SourceLocation {
+            id: "test".into(),
+            kind: SourceKind::SteamEmulator,
+            path: directory.path().to_path_buf(),
+            enabled: true,
+            notify: true,
+        }]);
+        assert_eq!(files, vec![live.join("achievements.json")]);
     }
 }
