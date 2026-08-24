@@ -461,8 +461,10 @@
       const count = await invoke<number>('scan_sources', { establishBaseline });
       await refresh();
       status = `Watching ${count} achievement files`;
+      return true;
     } catch (error) {
       status = `Scan failed: ${String(error)}`;
+      return false;
     } finally {
       scanning = false;
     }
@@ -560,8 +562,8 @@
     status = 'Folder removed. Save settings to stop watching it.';
   }
 
-  async function detectSources(deep = false, scanAfter = true) {
-    if (!settings) return;
+  async function detectSources(deep = false, scanAfter = true): Promise<string | null> {
+    if (!settings) return 'Settings are not available';
     status = deep ? 'Searching local drives for achievement sources…' : status;
     try {
       const detected = await invoke<AppSettings['sourceLocations']>('detect_sources', { deep });
@@ -574,8 +576,11 @@
         status = additions.length ? `Found ${additions.length} achievement folder${additions.length === 1 ? '' : 's'}` : 'No new achievement folders found';
         if (scanAfter && additions.length) await scan(true);
       }
+      return null;
     } catch (error) {
-      status = `Source discovery failed: ${String(error)}`;
+      const message = String(error);
+      status = `Source discovery failed: ${message}`;
+      return message;
     }
   }
 
@@ -599,17 +604,22 @@
     }
   }
 
-  async function refreshMissingMetadata() {
+  async function refreshMissingMetadata(expectedStatus?: string, reportSuccess = true) {
     try {
       const updated = await invoke<number>('refresh_metadata', { gameId: null });
       await refresh();
-      status = updated > 0
-        ? `Library information updated for ${updated} item${updated === 1 ? '' : 's'}`
-        : 'Library is up to date';
+      if (reportSuccess && (!expectedStatus || status === expectedStatus)) {
+        status = updated > 0
+          ? `Library information updated for ${updated} item${updated === 1 ? '' : 's'}`
+          : 'Library is up to date';
+      }
     } catch (error) {
       // Metadata is optional enrichment. A network or Steam Community failure
       // must not turn an otherwise usable local library into a startup failure.
-      status = `Some game information could not be refreshed: ${String(error)}`;
+      if (!expectedStatus || status === expectedStatus) {
+        const failure = `Some game information could not be refreshed: ${String(error)}`;
+        status = expectedStatus ? `${expectedStatus} ${failure}` : failure;
+      }
     }
   }
 
@@ -825,12 +835,16 @@
       initializing = false;
       status = games.length ? 'Refreshing library…' : 'Searching for achievement data…';
       void (async () => {
-        await detectSources(false, false);
+        const discoveryError = await detectSources(false, false);
         steamAccounts = await invoke<typeof steamAccounts>('steam_accounts').catch(() => []);
         await useDefaultSteamName();
-        await scan(true);
-        status = 'Library is ready';
-        void refreshMissingMetadata();
+        const scanSucceeded = await scan(true);
+        if (scanSucceeded) {
+          status = discoveryError
+            ? `Library loaded, but automatic folder detection failed: ${discoveryError}`
+            : 'Library is ready';
+          void refreshMissingMetadata(status, !discoveryError);
+        }
         void checkUpdates(false);
       })();
     } catch (error) {
