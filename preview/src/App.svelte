@@ -497,7 +497,7 @@
 
   async function launchGame(game: GameSummary) {
     gameMenu = null;
-    if (!settings?.gameLaunchConfigs[game.gameId]) return configureGame(game);
+    if (!settings?.gameLaunchConfigs[game.gameId] && game.sourceKind !== 'steam') return configureGame(game);
     try {
       await invoke('launch_game', { gameId: game.gameId });
       status = `Started ${game.name}`;
