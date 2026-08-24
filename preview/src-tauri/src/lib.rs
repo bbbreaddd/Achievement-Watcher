@@ -3699,17 +3699,21 @@ pub fn run() {
                 ..
             } = event
                 && label == "main"
-                && app
+            {
+                let close_to_tray = app
                     .state::<AppState>()
                     .store
                     .lock()
                     .ok()
                     .and_then(|store| store.load_settings().ok())
-                    .is_some_and(|settings| settings.close_to_tray)
-            {
+                    .is_none_or(|settings| settings.close_to_tray);
                 api.prevent_close();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.destroy();
+                if close_to_tray {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.destroy();
+                    }
+                } else {
+                    app.exit(0);
                 }
             }
         });
