@@ -830,7 +830,7 @@
         <button class="back-button" aria-label="Back to games" title="Back to games" onclick={() => selectedGame = null}><i class="fas fa-chevron-left"></i></button>
       </div>
       <div class="achievement-tools"><div id="achievement-search"><span><i class="fas fa-search"></i></span><input class:has={achievementQuery.length > 0} type="search" bind:value={achievementQuery} placeholder="Search achievements" aria-label="Search achievements" /></div></div>
-      {#if achievementStatus}<p class="detail-status">{achievementStatus}</p>{/if}
+      {#if achievementStatus}<p class="detail-status" role="status" aria-live="polite">{achievementStatus}</p>{/if}
       {#if achievementQuery && achievements.length > 0 && visibleAchievementCount() === 0}
         <div class="empty compact">
           <i class="fas fa-search" aria-hidden="true"></i>
@@ -839,15 +839,16 @@
           <button onclick={() => achievementQuery = ''}>Clear search</button>
         </div>
       {/if}
+      {#if achievements.length > 0 && (!achievementQuery || visibleAchievementCount() > 0)}
       {#each [['Unlocked', true], ['Locked', false]] as group}
         {@const rows = achievementRows(group[1] as boolean)}
         {@const collapsed = group[1] ? unlockedCollapsed : lockedCollapsed}
         {@const groupCount = achievements.filter((achievement) => achievement.achieved === (group[1] as boolean)).length}
-        {#if rows.length || group[1] || hiddenLockedCount() > 0}
+        {#if rows.length || (!achievementQuery && (group[1] || hiddenLockedCount() > 0))}
           <section class="achievement-group">
             <h3><span><i class={group[1] ? 'fas fa-unlock' : 'fas fa-lock'}></i> {group[0]} <small>{groupCount}</small></span><span class="achievement-sort"><button class:active={achievementSort === 'name'} title="Sort achievements alphabetically" aria-label="Sort achievements alphabetically" onclick={() => achievementSort = 'name'}><i class="fas fa-sort-alpha-down"></i></button>{#if group[1]}<button class:active={achievementSort === 'time'} title="Sort by unlock time" aria-label="Sort by unlock time" onclick={() => achievementSort = 'time'}><i class="far fa-clock"></i></button>{/if}{#if !group[1]}<button class:active={achievementSort === 'progress'} title="Sort by progress" aria-label="Sort by progress" onclick={() => achievementSort = 'progress'}><i class="fas fa-percent"></i></button>{/if}<button class:active={achievementSort === 'rarity'} title="Sort by global rarity" aria-label="Sort by global rarity" onclick={() => achievementSort = 'rarity'}><i class="fas fa-gem"></i></button></span><button class="collapse-toggle" class:active={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group[0]} achievements`} onclick={() => group[1] ? unlockedCollapsed = !unlockedCollapsed : lockedCollapsed = !lockedCollapsed}><i class="fas fa-chevron-right"></i></button></h3>
             {#if !collapsed}<ul>
-              {#if group[1] && rows.length === 0}<li class="achievement-notice"><i class="fas fa-frown-open"></i><strong>{t('noneUnlocked', 'No achievement unlocked yet')}</strong><span>{t('play', 'Start playing!')}</span></li>{/if}
+              {#if !achievementQuery && group[1] && rows.length === 0}<li class="achievement-notice"><i class="fas fa-frown-open"></i><strong>{t('noneUnlocked', 'No achievement unlocked yet')}</strong><span>{t('play', 'Start playing!')}</span></li>{/if}
               {#each rows as achievement}
                 <li><article data-achievement-id={achievement.achievementId} class:highlight={highlightedAchievement === achievement.achievementId} class:unlocked={achievement.achieved} class:rare={(achievement.globalPercentHundredths ?? 10_001) <= 1000} class="achievement-row">
                   <div class="achievement-icon"><span><i class={achievement.achieved ? 'fas fa-trophy' : 'fas fa-lock'}></i></span>{#if achievement.icon}<img src={imageUrl(achievement.icon)} alt="" onerror={(event) => event.currentTarget.remove()} />{/if}</div>
@@ -859,6 +860,7 @@
           </section>
         {/if}
       {/each}
+      {/if}
       <button class="scroll-top" title="Scroll to top" aria-label="Scroll to top" onclick={() => document.getElementById('achievement')?.scrollTo({ top: 0, behavior: 'smooth' })}><i class="fas fa-chevron-up"></i></button>
     </section>
   {:else}
