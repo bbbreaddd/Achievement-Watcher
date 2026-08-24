@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Achievement Watcher",
+  "version": "0.1.0-preview.12",
+  "identifier": "io.github.darktakayanagi.achievement-watcher.preview",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: https:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "requireLiteralLeadingDot": false,
+          "allow": ["**/*.png", "**/*.jpg", "**/*.jpeg", "**/*.webp", "**/*.bmp", "**/*.gif"]
+        }
+      }
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Achievement Watcher",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "decorations": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "externalBin": ["binaries/achievement-watcher-steam-helper"],
+    "resources": {
+      "binaries/steam_api64.dll": "steam_api64.dll"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "../../app/resources/icon/icon.ico",
+        "uninstallerIcon": "../../app/resources/icon/icon.ico",
+        "sidebarImage": "../../app/build/left.bmp",
+        "startMenuFolder": "Achievement Watcher"
+      }
+    }
+  }
+}

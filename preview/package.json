@@ -1,0 +1,31 @@
+{
+  "name": "achievement-watcher-preview-ui",
+  "private": true,
+  "version": "0.1.0-preview.12",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 1420 --strictPort",
+    "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json && vitest run",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tauri:dev": "tauri dev",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.2",
+    "svelte": "5.56.10"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@tauri-apps/cli": "2.11.4",
+    "@testing-library/svelte": "5.2.10",
+    "jsdom": "26.1.0",
+    "svelte-check": "4.3.4",
+    "typescript": "5.9.3",
+    "vite": "7.2.4",
+    "vitest": "4.1.11"
+  }
+}

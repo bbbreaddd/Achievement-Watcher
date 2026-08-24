@@ -7,6 +7,8 @@
 
 ## Notable Changes
 
+> A lightweight Tauri/Rust rewrite is under active development in [`preview/`](preview/README.md). It installs side-by-side, imports legacy data read-only, and targets less than 100 MB in background mode without keeping a WebView resident.
+
 - Steam API key no longer required
 - Play button to run games from within the app
 - video souvenir now captures also the moments before triggering an achievement, possible with OBS Studio (developed by the OBS Project & licensed under the GNU GPL v2. [Source code](https://github.com/obsproject/obs-studio))

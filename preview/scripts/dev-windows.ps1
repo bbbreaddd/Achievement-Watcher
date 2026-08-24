@@ -1,0 +1,142 @@
+param(
+  [switch]$CheckOnly,
+  [switch]$Release
+)
+
+$ErrorActionPreference = 'Stop'
+$buildRoot = Join-Path $env:LOCALAPPDATA 'AchievementWatcherBuild'
+$sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$assetSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\Source')).Path
+$resourceSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\resources')).Path
+$mediaSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\media')).Path
+$localeSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\locale')).Path
+$installerSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\build')).Path
+$presetSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\presets')).Path
+$stageRoot = Join-Path $buildRoot 'source'
+$assetStageRoot = Join-Path $buildRoot 'app\Source'
+$resourceStageRoot = Join-Path $buildRoot 'app\resources'
+$mediaStageRoot = Join-Path $buildRoot 'app\media'
+$localeStageRoot = Join-Path $buildRoot 'app\locale'
+$installerStageRoot = Join-Path $buildRoot 'app\build'
+$presetStageRoot = Join-Path $buildRoot 'app\presets'
+$env:CARGO_TARGET_DIR = Join-Path $buildRoot 'target'
+New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR,$stageRoot,$assetStageRoot,$resourceStageRoot,$mediaStageRoot,$localeStageRoot,$installerStageRoot,$presetStageRoot | Out-Null
+
+function Sync-Source {
+  & robocopy $sourceRoot $stageRoot /MIR /XD node_modules target dist bin obj /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Source staging failed with robocopy exit code $LASTEXITCODE" }
+  & robocopy $assetSourceRoot $assetStageRoot *.svg /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Source icon staging failed with robocopy exit code $LASTEXITCODE" }
+  & robocopy $resourceSourceRoot $resourceStageRoot /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Original UI resource staging failed with robocopy exit code $LASTEXITCODE" }
+  & robocopy $mediaSourceRoot $mediaStageRoot *.wav /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Notification sound staging failed with robocopy exit code $LASTEXITCODE" }
+  & robocopy $localeSourceRoot $localeStageRoot *.json /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Locale staging failed with robocopy exit code $LASTEXITCODE" }
+  & robocopy $installerSourceRoot $installerStageRoot *.bmp /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Installer artwork staging failed with robocopy exit code $LASTEXITCODE" }
+  & robocopy $presetSourceRoot $presetStageRoot /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+  if ($LASTEXITCODE -ge 8) { throw "Notification preset staging failed with robocopy exit code $LASTEXITCODE" }
+}
+
+function Build-SteamHelper {
+  param([switch]$ReleaseBuild)
+  $cargoArgs = @('build', '-p', 'achievement-watcher-steam-helper')
+  $profile = 'debug'
+  if ($ReleaseBuild) {
+    $cargoArgs += '--release'
+    $profile = 'release'
+  }
+  & cargo @cargoArgs
+  if ($LASTEXITCODE -ne 0) { throw 'Steam helper build failed' }
+  $steamRuntime = Get-ChildItem (Join-Path $env:CARGO_TARGET_DIR "$profile\build") -Filter 'steam_api64.dll' -File -Recurse |
+    Sort-Object LastWriteTimeUtc -Descending |
+    Select-Object -First 1
+  if (-not $steamRuntime) { throw 'The Steam helper runtime steam_api64.dll was not produced' }
+  $helperPath = Join-Path $env:CARGO_TARGET_DIR "$profile\achievement-watcher-steam-helper.exe"
+  foreach ($windowsBinary in @($helperPath, $steamRuntime.FullName)) {
+    $stream = [IO.File]::OpenRead($windowsBinary)
+    try { $first = $stream.ReadByte(); $second = $stream.ReadByte() }
+    finally { $stream.Dispose() }
+    if ($first -ne 0x4d -or $second -ne 0x5a) {
+      throw "Expected a Windows PE binary but found an invalid file: $windowsBinary"
+    }
+  }
+  Copy-Item $steamRuntime.FullName (Join-Path $env:CARGO_TARGET_DIR "$profile\steam_api64.dll") -Force
+  $targetTriple = (& rustc --print host-tuple).Trim()
+  if (-not $targetTriple) { throw 'Could not determine the Rust target triple' }
+  $bundleDirectory = Join-Path $stageRoot 'src-tauri\binaries'
+  New-Item -ItemType Directory -Force -Path $bundleDirectory | Out-Null
+  Copy-Item $helperPath `
+    (Join-Path $bundleDirectory "achievement-watcher-steam-helper-$targetTriple.exe") -Force
+  Copy-Item $steamRuntime.FullName (Join-Path $bundleDirectory 'steam_api64.dll') -Force
+}
+
+Sync-Source
+
+$sccache = Get-Command sccache -ErrorAction SilentlyContinue
+if ($sccache) {
+  $env:RUSTC_WRAPPER = $sccache.Source
+}
+
+Write-Host "Cargo artifacts: $env:CARGO_TARGET_DIR"
+Write-Host "Development source: $stageRoot"
+if ($sccache) { Write-Host 'Compiler cache: sccache' }
+
+Push-Location $stageRoot
+try {
+  $lockHash = (Get-FileHash package-lock.json -Algorithm SHA256).Hash
+  $hashFile = Join-Path $stageRoot 'node_modules\.achievement-watcher-lock-hash'
+  $installedHash = if (Test-Path $hashFile) { Get-Content $hashFile -Raw } else { '' }
+  if ($installedHash.Trim() -ne $lockHash) {
+    npm ci
+    New-Item -ItemType Directory -Force -Path (Split-Path $hashFile) | Out-Null
+    Set-Content -LiteralPath $hashFile -Value $lockHash -NoNewline
+  }
+
+  if ($CheckOnly) {
+    npm run check
+    Build-SteamHelper
+    & cargo check -p achievement-watcher-preview
+    exit $LASTEXITCODE
+  }
+
+  if ($Release) {
+    Build-SteamHelper -ReleaseBuild
+    npm run tauri build
+    Write-Host "Installer output: $env:CARGO_TARGET_DIR\release\bundle\nsis"
+    exit $LASTEXITCODE
+  }
+
+  $debugExecutable = Join-Path $env:CARGO_TARGET_DIR 'debug\achievement-watcher-preview.exe'
+  $lockedProcesses = @(Get-CimInstance Win32_Process -Filter "Name = 'achievement-watcher-preview.exe'" |
+    Where-Object { $_.ExecutablePath -eq $debugExecutable })
+  if ($lockedProcesses.Count -gt 0) {
+    $processIds = ($lockedProcesses.ProcessId -join ', ')
+    throw "The development copy of Achievement Watcher is already running (PID: $processIds). Close it or run Stop-Process -Id $processIds, then start this script again."
+  }
+
+  Build-SteamHelper
+
+  $syncJob = Start-Job -ArgumentList $sourceRoot,$stageRoot,$assetSourceRoot,$assetStageRoot,$resourceSourceRoot,$resourceStageRoot,$mediaSourceRoot,$mediaStageRoot,$localeSourceRoot,$localeStageRoot,$installerSourceRoot,$installerStageRoot,$presetSourceRoot,$presetStageRoot -ScriptBlock {
+    param($source, $stage, $assetSource, $assetStage, $resourceSource, $resourceStage, $mediaSource, $mediaStage, $localeSource, $localeStage, $installerSource, $installerStage, $presetSource, $presetStage)
+    while ($true) {
+      & robocopy $source $stage /MIR /XD node_modules target dist bin obj /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $assetSource $assetStage *.svg /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $resourceSource $resourceStage /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $mediaSource $mediaStage *.wav /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $localeSource $localeStage *.json /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $installerSource $installerStage *.bmp /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $presetSource $presetStage /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
+      Start-Sleep -Milliseconds 750
+    }
+  }
+  try {
+    npm run tauri dev
+  } finally {
+    Stop-Job $syncJob -ErrorAction SilentlyContinue
+    Remove-Job $syncJob -Force -ErrorAction SilentlyContinue
+  }
+} finally {
+  Pop-Location
+}

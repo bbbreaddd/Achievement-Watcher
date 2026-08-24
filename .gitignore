@@ -5,6 +5,7 @@ obs
 # Node modules
 app/node_modules/
 watchdog/node_modules/
+preview/node_modules/
 
 # Logs
 logs/
@@ -24,6 +25,13 @@ Thumbs.db
 # Build output
 dist/
 build/
+preview/target/
+preview/dist/
+preview/game-bar-companion/bin/
+preview/game-bar-companion/obj/
+preview/game-bar-companion/AppPackages/
+preview/game-bar-companion/*.pfx
+preview/game-bar-companion/*.cer
 
 # Coverage and testing
 coverage/
@@ -55,3 +63,4 @@ pids/
 
 # Others
 *.tgz
+preview/src-tauri/binaries/

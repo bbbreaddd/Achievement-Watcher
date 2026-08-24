@@ -58,7 +58,7 @@ function scaleAnimationTimings(element, scaleFactor) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  window.api.onAnimationScale((event, scale) => {
+  const applyAnimationScale = (scale) => {
     const animatedElements = getAnimatedElements();
     const transitionedEls = getTransitionedElements();
 
@@ -79,13 +79,16 @@ window.addEventListener('DOMContentLoaded', () => {
       const scaled = Math.round(original * scale);
       durationMeta.setAttribute('content', scaled.toString());
     }
-  });
+  };
 
-  window.api.onNotification((notificationData) => {
-    if (notificationData && notificationData.displayName && notificationData.iconPath) {
-      document.querySelector('.title').textContent = notificationData.displayName;
-      document.querySelector('.detail').textContent = notificationData.description || '';
-      document.querySelector('.icon img').src = notificationData.iconPath;
+  const showNotification = (notificationData, embedded = false) => {
+    if (notificationData) {
+      const title = document.querySelector('.title');
+      const detail = document.querySelector('.detail');
+      const icon = document.querySelector('.icon img');
+      if (title) title.textContent = notificationData.displayName || '';
+      if (detail) detail.textContent = notificationData.description || '';
+      if (icon && notificationData.iconPath) icon.src = notificationData.iconPath;
     }
     const container = document.querySelector('.ach');
     container.classList.add('active');
@@ -93,12 +96,29 @@ window.addEventListener('DOMContentLoaded', () => {
     // Read duration from <meta name="duration">
     const durationMeta = document.querySelector('meta[name="duration"]');
     const duration = parseInt(durationMeta?.content, 10) || 4000;
-    setTimeout(() => {
-      window.api.captureScreen(notificationData.game, notificationData.displayName);
-    }, duration * 0.75);
-    setTimeout(() => {
-      container.classList.remove('active');
-      window.api.closeNotificationWindow();
-    }, duration);
-  });
+    if (!embedded) {
+      setTimeout(() => {
+        window.api.captureScreen(notificationData.game, notificationData.displayName);
+      }, duration * 0.75);
+      setTimeout(() => {
+        container.classList.remove('active');
+        window.api.closeNotificationWindow();
+      }, duration);
+    }
+  };
+
+  if (window.api) {
+    window.api.onAnimationScale((_event, scale) => applyAnimationScale(scale));
+    window.api.onNotification((notificationData) => showNotification(notificationData));
+  } else {
+    window.addEventListener('message', (event) => {
+      if (event.origin !== location.origin || event.data?.type !== 'achievement-watcher-notification') return;
+      const baseDuration = parseInt(document.querySelector('meta[name="duration"]')?.content, 10) || 4000;
+      applyAnimationScale(Math.max(0.1, event.data.duration / baseDuration));
+      showNotification(event.data, true);
+    });
+    document.addEventListener('click', () => {
+      window.parent.postMessage({ type: 'achievement-watcher-preset-open' }, location.origin);
+    });
+  }
 });

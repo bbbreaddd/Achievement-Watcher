@@ -1,0 +1,107 @@
+name: Preview checks
+
+on:
+  push:
+    tags:
+      - 'preview-v*'
+    paths:
+      - 'preview/**'
+      - '.github/workflows/preview.yml'
+  pull_request:
+    paths:
+      - 'preview/**'
+      - '.github/workflows/preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-core-and-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: preview/package-lock.json
+      - run: cargo test --locked -p aw-core
+        working-directory: preview
+      - run: npm ci
+        working-directory: preview
+      - run: npm run build
+        working-directory: preview
+      - run: npm test
+        working-directory: preview
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: preview/package-lock.json
+      - name: Apply preview tag version
+        if: startsWith(github.ref, 'refs/tags/preview-v')
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.Substring('preview-v'.Length)
+          Push-Location preview
+          npm version $version --no-git-tag-version
+          $config = Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
+          $config.version = $version
+          $config | ConvertTo-Json -Depth 100 | Set-Content 'src-tauri/tauri.conf.json' -Encoding utf8
+          $cargo = Get-Content 'Cargo.toml' -Raw
+          $cargo = $cargo -replace '(?m)^version = "[^"]+"', "version = `"$version`""
+          Set-Content 'Cargo.toml' $cargo -Encoding utf8
+          cargo generate-lockfile
+          Pop-Location
+      - run: npm ci
+        working-directory: preview
+      - shell: pwsh
+        run: ./scripts/dev-windows.ps1 -Release
+        working-directory: preview
+      - name: Build optional Game Bar companion
+        shell: pwsh
+        run: |
+          $env:AW_GAMEBAR_CERT_PASSWORD = [guid]::NewGuid().ToString()
+          ./preview/game-bar-companion/build-sideload.ps1
+      - name: Collect installable artifacts
+        shell: pwsh
+        run: |
+          $artifactRoot = Join-Path $PWD 'preview-artifacts'
+          $desktopRoot = Join-Path $artifactRoot 'desktop'
+          $companionRoot = Join-Path $artifactRoot 'game-bar-companion'
+          New-Item -ItemType Directory -Force -Path $desktopRoot,$companionRoot | Out-Null
+          $installerRoot = Join-Path $env:LOCALAPPDATA 'AchievementWatcherBuild\target\release\bundle\nsis'
+          Get-ChildItem $installerRoot -Filter '*.exe' -File | Copy-Item -Destination $desktopRoot
+          Get-ChildItem './preview/game-bar-companion' -Include '*.appx','*.appxbundle','*.msix','*.msixbundle' -File -Recurse |
+            Copy-Item -Destination $companionRoot
+          Copy-Item './preview/game-bar-companion/AchievementWatcher.GameBar.cer' $companionRoot
+          Copy-Item './preview/game-bar-companion/install-sideload.ps1' $companionRoot
+          Copy-Item './preview/game-bar-companion/uninstall-sideload.ps1' $companionRoot
+          Get-ChildItem $desktopRoot -Filter '*.exe' | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)" | Set-Content "$($_.FullName).sha256" -Encoding ascii
+          }
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: achievement-watcher-preview-windows
+          path: preview-artifacts
+          if-no-files-found: error
+      - name: Publish preview release
+        if: startsWith(github.ref, 'refs/tags/preview-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            preview-artifacts/desktop/*.exe
+            preview-artifacts/desktop/*.sha256
+            preview-artifacts/game-bar-companion/*
