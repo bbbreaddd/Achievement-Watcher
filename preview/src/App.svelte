@@ -509,6 +509,8 @@
 
   function titleActivity() {
     if (initializing) return 'Loading library…';
+    if (installingUpdate) return 'Preparing update…';
+    if (savingSettings) return 'Saving settings…';
     if (operation?.kind) return operation.message;
     if (scanning) return 'Scanning achievements…';
     return null;
@@ -1241,4 +1243,4 @@
 {#if gameConfig}
   <GameConfigDialog gameName={gameConfig.game.name} bind:executable={gameConfig.executable} bind:launchArguments={gameConfig.arguments} onBrowse={chooseGameExecutable} onSave={saveGameConfig} onCancel={closeGameConfig} />
 {/if}
-<StatusBar busy={scanning || Boolean(operation?.kind)} message={displayedStatus()} />
+<StatusBar busy={initializing || scanning || savingSettings || installingUpdate || Boolean(operation?.kind)} message={displayedStatus()} />
