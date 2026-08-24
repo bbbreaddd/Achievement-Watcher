@@ -774,9 +774,9 @@
       void (async () => {
         await detectSources(false, false);
         steamAccounts = await invoke<typeof steamAccounts>('steam_accounts').catch(() => []);
-        void refreshMissingMetadata();
         await scan(true);
         status = 'Library is ready';
+        void refreshMissingMetadata();
         void checkUpdates(false);
       })();
     } catch (error) {

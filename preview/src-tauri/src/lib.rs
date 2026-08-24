@@ -1781,23 +1781,30 @@ async fn scan_sources(app: AppHandle, establish_baseline: Option<bool>) -> Comma
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<AppState>();
-        state
-            .jobs
-            .run_scan(establish_baseline.unwrap_or(false), |baseline| {
-                let started = state.jobs.begin(
-                    "scan",
-                    "Scanning configured sources…",
-                    Utc::now().timestamp(),
-                );
-                emit_operation(&handle, started);
-                let result = scan_sources_sync(handle.clone(), state.clone(), Some(baseline));
-                let finished = state.jobs.finish(&result, Utc::now().timestamp());
-                emit_operation(&handle, finished);
-                result
-            })
+        run_coordinated_scan(&handle, &state, establish_baseline.unwrap_or(false))
     })
     .await
     .map_err(error)?
+}
+
+fn run_coordinated_scan(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    establish_baseline: bool,
+) -> CommandResult<usize> {
+    state.jobs.run_scan(establish_baseline, |baseline| {
+        emit_operation(
+            app,
+            state.jobs.begin(
+                "scan",
+                "Scanning configured sources…",
+                Utc::now().timestamp(),
+            ),
+        );
+        let result = scan_sources_sync(app.clone(), state.clone(), Some(baseline));
+        emit_operation(app, state.jobs.finish(&result, Utc::now().timestamp()));
+        result
+    })
 }
 
 fn scan_sources_sync(
@@ -3510,35 +3517,9 @@ fn watcher_heartbeat(
 fn start_background_baseline_scan(app: AppHandle) {
     std::thread::spawn(move || {
         let state = app.state::<AppState>();
-        let settings = match state.store.lock() {
-            Ok(store) => match store.load_settings() {
-                Ok(settings) => settings,
-                Err(message) => {
-                    notification_log(&state, &format!("Background scan settings: {message}"));
-                    return;
-                }
-            },
-            Err(message) => {
-                notification_log(&state, &format!("Background scan settings lock: {message}"));
-                return;
-            }
-        };
-        let locations: Vec<_> = settings
-            .source_locations
-            .iter()
-            .filter(|location| location.enabled && source_kind_enabled(&settings, location.kind))
-            .cloned()
-            .collect();
-        for path in source::discover_files(&locations) {
-            if let Err(message) = process_path(&app, &state, &path, true) {
-                notification_log(
-                    &state,
-                    &format!("Background scan skipped {}: {message}", path.display()),
-                );
-            }
+        if let Err(message) = run_coordinated_scan(&app, &state, true) {
+            notification_log(&state, &format!("Background scan: {message}"));
         }
-        let _ = dispatch_pending(&app, &state);
-        let _ = app.emit("library-changed", ());
     });
 }
 
