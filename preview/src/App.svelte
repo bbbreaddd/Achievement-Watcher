@@ -5,11 +5,10 @@
   import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
   import { onMount, tick } from 'svelte';
   import { completionPercent, sourceDescription, sourceLabel } from './library';
-  import steamIcon from '../../app/Source/steam.svg';
-  import playstationIcon from '../../app/Source/playstation.svg';
-  import epicIcon from '../../app/Source/epic.svg';
-  import gogIcon from '../../app/Source/gog.svg';
   import defaultAvatar from '../../app/resources/img/avatar.png';
+  import SourceBadge from './components/SourceBadge.svelte';
+  import StatusBar from './components/StatusBar.svelte';
+  import TitleBar from './components/TitleBar.svelte';
   import type { AchievementObservation, AppSettings, GameSummary, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
@@ -66,20 +65,6 @@
 
   function toggleMaximize() {
     void appWindow.toggleMaximize();
-  }
-
-  function sourceIcon(source?: SourceKind) {
-    if (source === 'rpcs3') return playstationIcon;
-    if (source === 'steam' || source === 'steam_emulator' || source === 'green_luma') return steamIcon;
-    if (source === 'epic') return epicIcon;
-    if (source === 'gog') return gogIcon;
-    return null;
-  }
-
-  function sourceMark(source?: SourceKind) {
-    if (source === 'green_luma') return 'GL';
-    if (!source) return 'DB';
-    return source.slice(0, 2).toUpperCase();
   }
 
   function hasSteamAppId(game: GameSummary) {
@@ -653,15 +638,14 @@
 <svelte:head><title>Achievement Watcher</title></svelte:head>
 <svelte:window onclick={() => { gameMenu = null; avatarMenu = null; }} onkeydown={handleWindowKeydown} />
 
-<header class="title-bar" data-tauri-drag-region>
-  <div class="watcher-state"><span class:busy={scanning}></span><span>{scanning ? 'Scanning achievements…' : 'Achievement Watcher is running'}</span></div>
-  <nav aria-label="Window controls">
-    <button aria-label="Minimize" title="Minimize" onclick={() => appWindow.minimize()}><i class="far fa-window-minimize"></i></button>
-    <button aria-label="Settings" title="Settings" class:active={view === 'settings'} disabled={view === 'settings'} onclick={openSettings}><i class="fas fa-cog"></i></button>
-    <button aria-label="Maximize" title="Maximize" onclick={toggleMaximize}><i class="far fa-window-maximize"></i></button>
-    <button class="close" aria-label="Close" title="Close" onclick={() => appWindow.close()}><i class="fas fa-times"></i></button>
-  </nav>
-</header>
+<TitleBar
+  {scanning}
+  settingsActive={view === 'settings'}
+  onMinimize={() => { void appWindow.minimize(); }}
+  onSettings={openSettings}
+  onMaximize={toggleMaximize}
+  onClose={() => { void appWindow.close(); }}
+/>
 
 <main>
   {#if view === 'library'}
@@ -670,7 +654,7 @@
       {#if selectedGame.icon}<img class="game-background" src={imageUrl(selectedGame.icon)} alt="" />{/if}
       <div class="achievement-page-header">
         <div class="game-heading">
-          <div class="source-badge large" title={activeAchievementSource === 'merged' ? 'Merged from every enabled source' : sourceDescription(activeSourceKind())}>{#if sourceIcon(activeSourceKind())}<img src={sourceIcon(activeSourceKind())!} alt="" />{:else}{sourceMark(activeSourceKind())}{/if}</div>
+          <SourceBadge source={activeSourceKind()} large description={activeAchievementSource === 'merged' ? 'Merged from every enabled source' : sourceDescription(activeSourceKind())} />
           <div><h2>{selectedGame.name}</h2>{#if gameSourceChoices.length > 1}<select class="game-source-select" bind:value={activeAchievementSource} onchange={changeAchievementSource} aria-label="Achievement progress source" title="Choose which progress source these achievements use">{#each gameSourceChoices as choice}<option value={choice.sourceId}>{sourceChoiceLabel(choice)}</option>{/each}</select>{:else}<span title={sourceDescription(activeSourceKind())}>{sourceLabel(activeSourceKind())} progress</span>{/if}</div>
         </div>
         <div class="game-activity"><div class="achievement-summary"><strong>{detailUnlocked()} / {achievements.length}</strong><span>{achievements.length ? Math.round(detailUnlocked() / achievements.length * 100) : 0}%</span></div>{#if achievements.some((achievement) => achievement.trophyGrade)}<ul class="detail-trophies trophy-totals" aria-label="Unlocked trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('platinum')}</li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('gold')}</li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('silver')}</li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('bronze')}</li></ul>{/if}{#if selectedGame.playtimeSeconds > 0}<div class="activity-pill" title="Tracked playtime"><i class="fas fa-gamepad"></i> {formatPlaytime(selectedGame.playtimeSeconds)}</div>{/if}{#if selectedGame.lastPlayed > 0}<div class="activity-pill"><i class="far fa-clock"></i> {new Date(selectedGame.lastPlayed * 1000).toLocaleDateString()}</div>{/if}</div>
@@ -699,7 +683,7 @@
                 <li><article data-achievement-id={achievement.achievementId} class:highlight={highlightedAchievement === achievement.achievementId} class:unlocked={achievement.achieved} class:rare={(achievement.globalPercentHundredths ?? 10_001) <= 1000} class="achievement-row">
                   <div class="achievement-icon"><span><i class={achievement.achieved ? 'fas fa-trophy' : 'fas fa-lock'}></i></span>{#if achievement.icon}<img src={imageUrl(achievement.icon)} alt="" onerror={(event) => event.currentTarget.remove()} />{/if}</div>
                   <div class="achievement-content"><h4>{achievement.displayName ?? achievement.achievementId}</h4><p>{achievement.hidden && !achievement.achieved && !settings?.showHidden ? t('revealedOnceUnlocked', 'Details for this achievement will be revealed once unlocked') : (achievement.description ?? 'No description available.')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<div class="achievement-progress"><i style={`width:${Math.min(100, achievement.currentProgress / achievement.maxProgress * 100)}%`}></i><span>{achievement.currentProgress} / {achievement.maxProgress}</span></div>{/if}</div>
-                  <div class="achievement-state">{#if achievement.originSourceId}<span class="achievement-origin-label" title={sourceDescription(kindForSource(achievement.originSourceId))}><i class="achievement-origin source-badge">{#if sourceIcon(kindForSource(achievement.originSourceId))}<img src={sourceIcon(kindForSource(achievement.originSourceId))!} alt="" />{:else}{sourceMark(kindForSource(achievement.originSourceId))}{/if}</i>{sourceLabel(kindForSource(achievement.originSourceId))}</span>{/if}{#if achievement.trophyGrade}<i class={`trophy-grade ${achievement.trophyGrade} fas fa-trophy`} title={`${achievement.trophyGrade} trophy`}></i>{/if}{#if achievement.achieved}<strong>{t('unlocked', 'Unlocked')}</strong>{#if achievement.unlockTime > 0}<time title={new Date(achievement.unlockTime * 1000).toLocaleString()}>{formatUnlockTime(achievement.unlockTime)}</time>{/if}{:else}<span>{t('locked', 'Locked')}</span>{/if}{#if achievement.globalPercentHundredths !== undefined}<small title="Global Steam unlock percentage"><i class="fas fa-gem"></i> {achievement.globalPercentHundredths === 0 ? '<0.01' : (achievement.globalPercentHundredths / 100).toFixed(2)}% {t('globalStat', 'of players have this')}</small>{/if}</div>
+                  <div class="achievement-state">{#if achievement.originSourceId}<span class="achievement-origin-label" title={sourceDescription(kindForSource(achievement.originSourceId))}><SourceBadge source={kindForSource(achievement.originSourceId)} origin />{sourceLabel(kindForSource(achievement.originSourceId))}</span>{/if}{#if achievement.trophyGrade}<i class={`trophy-grade ${achievement.trophyGrade} fas fa-trophy`} title={`${achievement.trophyGrade} trophy`}></i>{/if}{#if achievement.achieved}<strong>{t('unlocked', 'Unlocked')}</strong>{#if achievement.unlockTime > 0}<time title={new Date(achievement.unlockTime * 1000).toLocaleString()}>{formatUnlockTime(achievement.unlockTime)}</time>{/if}{:else}<span>{t('locked', 'Locked')}</span>{/if}{#if achievement.globalPercentHundredths !== undefined}<small title="Global Steam unlock percentage"><i class="fas fa-gem"></i> {achievement.globalPercentHundredths === 0 ? '<0.01' : (achievement.globalPercentHundredths / 100).toFixed(2)}% {t('globalStat', 'of players have this')}</small>{/if}</div>
                 </article></li>
               {/each}
             </ul>{#if !group[1] && !settings?.showHidden && !revealHiddenForGame && hiddenLockedCount() > 0}<div class="hidden-disclaimer"><span><i class="fas fa-eye-slash"></i> {hiddenLockedCount()} {t('hiddenRemain', 'hidden achievements remaining')}</span><button onclick={() => revealHiddenForGame = true}>{t('settings.common.show', 'Show')} hidden achievements</button></div>{/if}{/if}
@@ -713,7 +697,7 @@
       <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
-{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); gameMenu = { game, x: event.clientX, y: event.clientY }; }} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="achievement-button" title={`View ${game.name} achievements`} aria-label={`View ${game.name} achievements`} onclick={(event) => { event.stopPropagation(); void openGame(game); }}><i class="fas fa-trophy"></i></button><button class="play-button" title={`Play ${game.name}`} aria-label={`Play ${game.name}`} onclick={(event) => { event.stopPropagation(); void launchGame(game); }}><i class="fas fa-play"></i></button><button class="config-button" title={`Configure ${game.name}`} aria-label={`Configure ${game.name}`} onclick={(event) => { event.stopPropagation(); configureGame(game); }}><i class="fas fa-tools"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><i class="source-badge" title={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}>{#if sourceIcon(game.sourceKind)}<img src={sourceIcon(game.sourceKind)!} alt="" />{:else}{sourceMark(game.sourceKind)}{/if}</i></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
+{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); gameMenu = { game, x: event.clientX, y: event.clientY }; }} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="achievement-button" title={`View ${game.name} achievements`} aria-label={`View ${game.name} achievements`} onclick={(event) => { event.stopPropagation(); void openGame(game); }}><i class="fas fa-trophy"></i></button><button class="play-button" title={`Play ${game.name}`} aria-label={`Play ${game.name}`} onclick={(event) => { event.stopPropagation(); void launchGame(game); }}><i class="fas fa-play"></i></button><button class="config-button" title={`Configure ${game.name}`} aria-label={`Configure ${game.name}`} onclick={(event) => { event.stopPropagation(); configureGame(game); }}><i class="fas fa-tools"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
       </div>
     </section>
   {/if}
@@ -926,4 +910,4 @@
     </div>
   </div>
 {/if}
-<footer role="status" aria-live="polite" aria-atomic="true" title={status}><span class:busy={scanning}></span><span class="footer-message">{status}</span></footer>
+<StatusBar busy={scanning} message={status} />
