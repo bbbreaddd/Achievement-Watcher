@@ -2998,15 +2998,19 @@ fn playtime_notification(
 }
 
 #[tauri::command]
-async fn test_game_bar(app: AppHandle) -> CommandResult<()> {
+async fn test_game_bar(app: AppHandle, settings: Option<AppSettings>) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let settings = state
-            .store
-            .lock()
-            .map_err(lock_error)?
-            .load_settings()
-            .map_err(error)?;
+        let settings = match settings {
+            Some(settings) => settings,
+            None => state
+                .store
+                .lock()
+                .map_err(lock_error)?
+                .load_settings()
+                .map_err(error)?,
+        };
+        validate_settings(&settings)?;
         if !settings.game_bar_enabled {
             return Err("Enable the Game Bar companion transport first".into());
         }
@@ -3019,15 +3023,19 @@ async fn test_game_bar(app: AppHandle) -> CommandResult<()> {
 }
 
 #[tauri::command]
-async fn test_gntp(app: AppHandle) -> CommandResult<()> {
+async fn test_gntp(app: AppHandle, settings: Option<AppSettings>) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let settings = state
-            .store
-            .lock()
-            .map_err(lock_error)?
-            .load_settings()
-            .map_err(error)?;
+        let settings = match settings {
+            Some(settings) => settings,
+            None => state
+                .store
+                .lock()
+                .map_err(lock_error)?
+                .load_settings()
+                .map_err(error)?,
+        };
+        validate_settings(&settings)?;
         if !settings.gntp_enabled {
             return Err("Enable the GNTP transport first".into());
         }
@@ -3042,13 +3050,17 @@ async fn test_gntp(app: AppHandle) -> CommandResult<()> {
 }
 
 #[tauri::command]
-async fn test_obs(state: State<'_, AppState>) -> CommandResult<()> {
-    let settings = state
-        .store
-        .lock()
-        .map_err(lock_error)?
-        .load_settings()
-        .map_err(error)?;
+async fn test_obs(state: State<'_, AppState>, settings: Option<AppSettings>) -> CommandResult<()> {
+    let settings = match settings {
+        Some(settings) => settings,
+        None => state
+            .store
+            .lock()
+            .map_err(lock_error)?
+            .load_settings()
+            .map_err(error)?,
+    };
+    validate_settings(&settings)?;
     obs::save_replay(&settings).await
 }
 
