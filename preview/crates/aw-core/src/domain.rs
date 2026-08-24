@@ -25,6 +25,7 @@ pub struct AchievementObservation {
 pub fn merge_observations(
     observations: Vec<AchievementObservation>,
     recent_first: bool,
+    source_priorities: &BTreeMap<String, u8>,
 ) -> Vec<AchievementObservation> {
     let mut merged: BTreeMap<(String, String), AchievementObservation> = BTreeMap::new();
     for mut observation in observations {
@@ -42,7 +43,22 @@ pub fn merge_observations(
             }
             Some(existing) => {
                 let replace_state = observation.achieved && !existing.achieved;
+                let observation_priority = observation
+                    .origin_source_id
+                    .as_ref()
+                    .and_then(|source| source_priorities.get(source))
+                    .copied()
+                    .unwrap_or(u8::MAX);
+                let existing_priority = existing
+                    .origin_source_id
+                    .as_ref()
+                    .and_then(|source| source_priorities.get(source))
+                    .copied()
+                    .unwrap_or(u8::MAX);
+                let replace_priority = observation.achieved == existing.achieved
+                    && observation_priority < existing_priority;
                 let replace_time = observation.achieved == existing.achieved
+                    && observation_priority == existing_priority
                     && observation.unlock_time > 0
                     && (existing.unlock_time == 0
                         || if recent_first {
@@ -50,7 +66,7 @@ pub fn merge_observations(
                         } else {
                             observation.unlock_time < existing.unlock_time
                         });
-                if replace_state || replace_time {
+                if replace_state || replace_priority || replace_time {
                     let hidden = existing.hidden || observation.hidden;
                     let trophy_grade = observation
                         .trophy_grade
@@ -428,6 +444,7 @@ mod tests {
         let merged = merge_observations(
             vec![observation("steam", false, 0), observation("emu", true, 20)],
             false,
+            &BTreeMap::new(),
         );
         assert_eq!(merged.len(), 1);
         assert!(merged[0].achieved);
@@ -437,7 +454,25 @@ mod tests {
     #[test]
     fn timestamp_merge_order_is_configurable() {
         let values = vec![observation("one", true, 20), observation("two", true, 10)];
-        assert_eq!(merge_observations(values.clone(), false)[0].unlock_time, 10);
-        assert_eq!(merge_observations(values, true)[0].unlock_time, 20);
+        assert_eq!(
+            merge_observations(values.clone(), false, &BTreeMap::new())[0].unlock_time,
+            10
+        );
+        assert_eq!(
+            merge_observations(values, true, &BTreeMap::new())[0].unlock_time,
+            20
+        );
+    }
+
+    #[test]
+    fn equal_states_prefer_the_higher_priority_source() {
+        let values = vec![
+            observation("emulator", true, 10),
+            observation("steam", true, 20),
+        ];
+        let priorities = BTreeMap::from([("steam".into(), 0), ("emulator".into(), 1)]);
+        let merged = merge_observations(values, false, &priorities);
+        assert_eq!(merged[0].origin_source_id.as_deref(), Some("steam"));
+        assert_eq!(merged[0].unlock_time, 20);
     }
 }

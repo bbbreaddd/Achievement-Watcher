@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completionPercent, sourceDescription, sourceLabel } from './library';
+import { completionPercent, preferredAchievementSource, sourceDescription, sourceLabel } from './library';
 
 describe('library presentation', () => {
   it('bounds completion values and handles empty games', () => {
@@ -10,5 +10,13 @@ describe('library presentation', () => {
   it('formats machine-readable source names', () => {
     expect(sourceLabel('steam_emulator')).toBe('Steam emulator save');
     expect(sourceDescription('steam_emulator')).toContain('local Steam emulator save file');
+  });
+
+  it('prefers Steam client progress over merged and emulator progress', () => {
+    expect(preferredAchievementSource([
+      { sourceId: 'merged', sourceKind: 'steam' },
+      { sourceId: 'emulator', sourceKind: 'steam_emulator' },
+      { sourceId: 'client', sourceKind: 'steam' },
+    ], 'merged')).toBe('client');
   });
 });

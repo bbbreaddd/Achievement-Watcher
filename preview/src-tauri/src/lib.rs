@@ -26,7 +26,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::Mutex,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{
     AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder,
@@ -45,6 +45,7 @@ struct AppState {
     notification_dispatch: Mutex<()>,
     pending_open_game: Mutex<Option<OpenGameRequest>>,
     launched_games: Mutex<HashSet<String>>,
+    steam_fallback_blocked_until: Mutex<Option<Instant>>,
     game_bar: game_bar::GameBarBridge,
     websocket: websocket::Bridge,
     jobs: jobs::JobCoordinator,
@@ -835,9 +836,10 @@ fn dismiss_failed_notifications(state: State<'_, AppState>) -> CommandResult<usi
 #[tauri::command]
 async fn save_settings(
     app: AppHandle,
-    settings: AppSettings,
+    mut settings: AppSettings,
 ) -> CommandResult<SettingsApplyResult> {
     tauri::async_runtime::spawn_blocking(move || {
+        deduplicate_source_locations(&mut settings);
         let state = app.state::<AppState>();
         save_settings_sync(&app, &state, settings)
     })
@@ -1006,7 +1008,15 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
             kinds
         });
     let observations = if settings.merge_duplicate {
-        aw_core::merge_observations(observations, settings.time_merge_recent_first)
+        aw_core::merge_observations(
+            observations,
+            settings.time_merge_recent_first,
+            &settings
+                .source_locations
+                .iter()
+                .map(|source| (source.id.clone(), source_priority(source.kind)))
+                .collect(),
+        )
     } else {
         observations
     };
@@ -1411,11 +1421,33 @@ fn smart_find_source_roots() -> Vec<(aw_core::SourceKind, PathBuf)> {
 
 fn stable_source_id(kind: aw_core::SourceKind, path: &Path) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in path.to_string_lossy().to_lowercase().bytes() {
+    for byte in path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_lowercase()
+        .bytes()
+    {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("auto-{}-{hash:016x}", source_priority(kind))
+}
+
+fn deduplicate_source_locations(settings: &mut AppSettings) -> bool {
+    let before = settings.source_locations.len();
+    let mut seen = HashSet::new();
+    settings.source_locations.retain(|source| {
+        seen.insert((
+            source.kind as u8,
+            source
+                .path
+                .to_string_lossy()
+                .replace('\\', "/")
+                .trim_end_matches('/')
+                .to_lowercase(),
+        ))
+    });
+    settings.source_locations.len() != before
 }
 
 #[tauri::command]
@@ -1690,6 +1722,11 @@ fn list_achievements(
                 })
                 .collect(),
             settings.time_merge_recent_first,
+            &settings
+                .source_locations
+                .iter()
+                .map(|source| (source.id.clone(), source_priority(source.kind)))
+                .collect(),
         )
     } else {
         store
@@ -2341,7 +2378,7 @@ fn refresh_metadata_sync(
             .iter()
             .map(|location| (location.id.as_str(), location.kind))
             .collect();
-        store
+        let mut games = store
             .observations()
             .map_err(error)?
             .into_iter()
@@ -2363,7 +2400,18 @@ fn refresh_metadata_sync(
                     *current = kind;
                 }
                 games
-            })
+            });
+        if let Some(requested) = game_id.as_deref()
+            && !games.contains_key(requested)
+            && settings.steam_enabled
+            && requested
+                .chars()
+                .all(|character| character.is_ascii_digit())
+            && store.game_metadata(requested).map_err(error)?.is_some()
+        {
+            games.insert(requested.to_owned(), aw_core::SourceKind::Steam);
+        }
+        games
     };
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(6))
@@ -2527,7 +2575,7 @@ fn import_global_percentages(
         let Some(name) = item.get("name").and_then(|value| value.as_str()) else {
             continue;
         };
-        let Some(percent) = item.get("percent").and_then(|value| value.as_f64()) else {
+        let Some(percent) = item.get("percent").and_then(steam_percentage) else {
             continue;
         };
         store
@@ -2540,6 +2588,13 @@ fn import_global_percentages(
         saved = true;
     }
     Ok(saved)
+}
+
+fn steam_percentage(value: &serde_json::Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str()?.parse::<f64>().ok())
+        .filter(|percent| percent.is_finite())
 }
 
 fn import_epic_metadata(
@@ -3265,15 +3320,37 @@ fn sync_steam_game(
         .map_err(error)?;
     let mut observations = match steam::read_client_snapshot(&location.id, game_id) {
         Ok(observations) => observations,
-        Err(client_error) if settings.steam_public_fallback => read_steam_fallback(
-            &location.id,
-            account_id,
-            game_id,
-            settings.steam_api_key.trim(),
-        )
-        .map_err(|fallback_error| {
-            format!("Steam client: {client_error}; Steam fallback: {fallback_error}")
-        })?,
+        Err(client_error) if settings.steam_public_fallback => {
+            if state
+                .steam_fallback_blocked_until
+                .lock()
+                .map_err(lock_error)?
+                .is_some_and(|until| until > Instant::now())
+            {
+                return Err(format!(
+                    "Steam client: {client_error}; Steam public fallback is temporarily paused"
+                ));
+            }
+            match read_steam_fallback(
+                &location.id,
+                account_id,
+                game_id,
+                settings.steam_api_key.trim(),
+            ) {
+                Ok(observations) => observations,
+                Err(fallback_error) => {
+                    if fallback_error.contains("429") {
+                        *state
+                            .steam_fallback_blocked_until
+                            .lock()
+                            .map_err(lock_error)? = Some(Instant::now() + Duration::from_secs(300));
+                    }
+                    return Err(format!(
+                        "Steam client: {client_error}; Steam fallback: {fallback_error}"
+                    ));
+                }
+            }
+        }
         Err(client_error) => return Err(client_error),
     };
     let events = {
@@ -4320,18 +4397,26 @@ pub fn run() {
                 notification_dispatch: Mutex::new(()),
                 pending_open_game: Mutex::new(None),
                 launched_games: Mutex::new(HashSet::new()),
+                steam_fallback_blocked_until: Mutex::new(None),
                 game_bar: game_bar::GameBarBridge::start(),
                 websocket: websocket::Bridge::default(),
                 jobs: jobs::JobCoordinator::default(),
                 data_dir,
             });
-            let startup_settings = app
+            let mut startup_settings = app
                 .state::<AppState>()
                 .store
                 .lock()
                 .map_err(|error| error.to_string())?
                 .load_settings()?;
             let state = app.state::<AppState>();
+            if deduplicate_source_locations(&mut startup_settings) {
+                state
+                    .store
+                    .lock()
+                    .map_err(|error| error.to_string())?
+                    .save_settings(&startup_settings)?;
+            }
             if !cfg!(dev)
                 && let Err(message) = registry::configure_startup(startup_settings.run_at_login)
             {
@@ -4494,8 +4579,12 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{emulator_config_value, source_uses_steam_metadata, steam_id64};
-    use aw_core::SourceKind;
+    use super::{
+        deduplicate_source_locations, emulator_config_value, source_uses_steam_metadata,
+        stable_source_id, steam_id64, steam_percentage,
+    };
+    use aw_core::{AppSettings, SourceKind, SourceLocation};
+    use std::path::Path;
 
     #[test]
     fn reads_redirected_emulator_save_configuration() {
@@ -4522,5 +4611,42 @@ mod tests {
     fn accepts_account_ids_and_full_steam_ids() {
         assert_eq!(steam_id64("430715348"), 76_561_198_390_981_076);
         assert_eq!(steam_id64("76561198390981076"), 76_561_198_390_981_076);
+    }
+
+    #[test]
+    fn reads_steam_percentages_from_strings_and_numbers() {
+        assert_eq!(steam_percentage(&serde_json::json!("70.7")), Some(70.7));
+        assert_eq!(steam_percentage(&serde_json::json!(12.5)), Some(12.5));
+        assert_eq!(steam_percentage(&serde_json::json!("unknown")), None);
+    }
+
+    #[test]
+    fn source_identity_ignores_windows_path_spelling() {
+        assert_eq!(
+            stable_source_id(SourceKind::Steam, Path::new("C:\\Steam\\appcache\\stats")),
+            stable_source_id(SourceKind::Steam, Path::new("c:/steam/appcache/stats"))
+        );
+        let mut settings = AppSettings {
+            source_locations: vec![
+                SourceLocation {
+                    id: "first".into(),
+                    kind: SourceKind::Steam,
+                    path: "C:\\Steam\\appcache\\stats".into(),
+                    enabled: true,
+                    notify: true,
+                },
+                SourceLocation {
+                    id: "duplicate".into(),
+                    kind: SourceKind::Steam,
+                    path: "c:/steam/appcache/stats/".into(),
+                    enabled: true,
+                    notify: true,
+                },
+            ],
+            ..AppSettings::default()
+        };
+        assert!(deduplicate_source_locations(&mut settings));
+        assert_eq!(settings.source_locations.len(), 1);
+        assert_eq!(settings.source_locations[0].id, "first");
     }
 }
