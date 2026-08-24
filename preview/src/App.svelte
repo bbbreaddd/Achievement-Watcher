@@ -7,6 +7,7 @@
   import { completionPercent, sourceDescription, sourceLabel } from './library';
   import { cloneSettings, notificationPresentation, settingsChanged } from './settings';
   import defaultAvatar from '../../app/resources/img/avatar.png';
+  import ConfirmDialog from './components/ConfirmDialog.svelte';
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
@@ -42,6 +43,11 @@
   let diagnosticData: { appVersion: string; observationCount: number; gameCount: number; enabledSourceCount: number; missingSourceCount: number; pendingNotifications: number; failedNotifications: number; recentErrors: string[]; notificationLog: string } | null = null;
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
+  let gameMenuElement: HTMLElement;
+  let menuReturnFocus: HTMLElement | null = null;
+  let confirmationReturnFocus: HTMLElement | null = null;
+  let confirmationBusy = false;
+  let confirmation: { title: string; message: string; confirmLabel: string; action: () => void | Promise<void> } | null = null;
   const appWindow = getCurrentWindow();
   const localeModules = import.meta.glob('../../app/locale/lang/*.json', { eager: true, import: 'default' }) as Record<string, Record<string, unknown>>;
   let locale: Record<string, unknown> = localeModules['../../app/locale/lang/english.json'] ?? {};
@@ -104,6 +110,72 @@
   function clearLibraryFilters() {
     query = '';
     libraryFilter = 'all';
+  }
+
+  async function showGameMenu(event: MouseEvent, game: GameSummary) {
+    event.preventDefault();
+    event.stopPropagation();
+    menuReturnFocus = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    gameMenu = { game, x: event.clientX, y: event.clientY };
+    await tick();
+    gameMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }
+
+  function closeGameMenu(restoreFocus = false) {
+    gameMenu = null;
+    if (restoreFocus) {
+      const target = menuReturnFocus;
+      menuReturnFocus = null;
+      void tick().then(() => target?.focus());
+    }
+  }
+
+  function handleMenuKeydown(event: KeyboardEvent) {
+    const items = Array.from(gameMenuElement.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    if (!items.length) return;
+    const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
+    let target: HTMLButtonElement | undefined;
+    if (event.key === 'ArrowDown') target = items[(current + 1) % items.length];
+    else if (event.key === 'ArrowUp') target = items[(current - 1 + items.length) % items.length];
+    else if (event.key === 'Home') target = items[0];
+    else if (event.key === 'End') target = items.at(-1);
+    else if (event.key === 'Escape') {
+      event.preventDefault();
+      closeGameMenu(true);
+      return;
+    } else if (event.key === 'Tab') {
+      closeGameMenu();
+      return;
+    }
+    if (target) {
+      event.preventDefault();
+      target.focus();
+    }
+  }
+
+  function requestConfirmation(title: string, message: string, confirmLabel: string, action: () => void | Promise<void>) {
+    confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    confirmation = { title, message, confirmLabel, action };
+  }
+
+  function cancelConfirmation() {
+    if (confirmationBusy) return;
+    confirmation = null;
+    const target = confirmationReturnFocus;
+    confirmationReturnFocus = null;
+    void tick().then(() => target?.focus());
+  }
+
+  async function runConfirmedAction() {
+    if (!confirmation || confirmationBusy) return;
+    confirmationBusy = true;
+    try {
+      await confirmation.action();
+      confirmation = null;
+    } finally {
+      confirmationBusy = false;
+      confirmationReturnFocus = null;
+    }
   }
 
   function visibleAchievementCount() {
@@ -594,8 +666,9 @@
 
   function handleWindowKeydown(event: KeyboardEvent) {
     if (event.key !== 'Escape') return;
+    if (confirmation) return;
     if (gameMenu || avatarMenu) {
-      gameMenu = null;
+      closeGameMenu(true);
       avatarMenu = null;
     } else if (gameConfig) {
       gameConfig = null;
@@ -655,7 +728,7 @@
 </script>
 
 <svelte:head><title>Achievement Watcher</title></svelte:head>
-<svelte:window onclick={() => { gameMenu = null; avatarMenu = null; }} onkeydown={handleWindowKeydown} />
+<svelte:window onclick={() => { closeGameMenu(); avatarMenu = null; }} onkeydown={handleWindowKeydown} />
 
 <TitleBar
   {scanning}
@@ -716,7 +789,7 @@
       <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
-{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); gameMenu = { game, x: event.clientX, y: event.clientY }; }} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="achievement-button" title={`View ${game.name} achievements`} aria-label={`View ${game.name} achievements`} onclick={(event) => { event.stopPropagation(); void openGame(game); }}><i class="fas fa-trophy"></i></button><button class="play-button" title={`Play ${game.name}`} aria-label={`Play ${game.name}`} onclick={(event) => { event.stopPropagation(); void launchGame(game); }}><i class="fas fa-play"></i></button><button class="config-button" title={`Configure ${game.name}`} aria-label={`Configure ${game.name}`} onclick={(event) => { event.stopPropagation(); configureGame(game); }}><i class="fas fa-tools"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
+{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => showGameMenu(event, game)} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="game-menu-button" title={`More actions for ${game.name}`} aria-label={`More actions for ${game.name}`} onclick={(event) => showGameMenu(event, game)}><i class="fas fa-ellipsis-v"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
       </div>
     </section>
   {/if}
@@ -727,7 +800,7 @@
       <div class="settings-header"><i class="fas fa-cog"></i><h2 id="settings-title">{t('settings.title', 'Settings')}</h2></div>
       <div class="settings-container">
       <nav class="settings-nav" aria-label="Settings categories">
-        {#each [['general','fas fa-tools',t('settings.sideMenu.general','General')],['notification','fas fa-bell',t('settings.sideMenu.notification','Notification')],['souvenir','fas fa-camera',t('settings.sideMenu.souvenir','Souvenir')],['folder','far fa-folder',t('settings.sideMenu.folder','Folder')],['source','fas fa-file-import',t('settings.sideMenu.source','Source')],['advanced','fas fa-flask',t('settings.sideMenu.advanced','Advanced')],['debug','fas fa-bug',t('settings.sideMenu.debug','Debug')]] as tab}
+        {#each [['general','fas fa-tools','General'],['notification','fas fa-bell','Notifications'],['souvenir','fas fa-camera','Captures'],['folder','far fa-folder','Folders'],['source','fas fa-file-import','Sources'],['advanced','fas fa-plug','Integrations'],['debug','fas fa-bug','Diagnostics']] as tab}
           <button class:active={settingsTab === tab[0]} aria-current={settingsTab === tab[0] ? 'page' : undefined} onclick={() => settingsTab = tab[0] as typeof settingsTab}><i class={tab[1]} aria-hidden="true"></i>{tab[2]}</button>
         {/each}
       </nav>
@@ -751,6 +824,10 @@
         {#if settings.runAtLogin}<label class="check nested"><input type="checkbox" bind:checked={settings.startMinimized} onchange={save} /> Start hidden in the system tray</label>{/if}
         <label class="check"><input type="checkbox" bind:checked={settings.closeToTray} onchange={save} /> Keep watching when the main window is closed</label>
         <p class="settings-help">Use Quit from the tray menu to stop achievement monitoring completely.</p>
+      </div>
+      <div class="settings-group">
+        <h3>Hidden games</h3>
+        <div class="field"><span>{settings.blacklistedGameIds.length} hidden game{settings.blacklistedGameIds.length === 1 ? '' : 's'}</span><button disabled={settings.blacklistedGameIds.length === 0} onclick={() => requestConfirmation('Clear the blacklist?', 'Every hidden game will become eligible to appear in the library again after you save.', 'Clear blacklist', () => { if (settings) { settings.blacklistedGameIds = []; void save(); } })}>Clear blacklist</button></div>
       </div>
       <div class="settings-group">
         <h3>Updates</h3>
@@ -791,6 +868,12 @@
         {#if settings.achievementOverlayEnabled}<label class="field"><span>Toggle shortcut</span><input bind:value={settings.achievementOverlayHotkey} onchange={save} aria-label="Achievement overlay shortcut" /></label><label class="field"><span>Overlay scale</span><input type="range" min="50" max="200" step="5" bind:value={settings.achievementOverlayScalePercent} onchange={save} /><output>{settings.achievementOverlayScalePercent}%</output></label><div class="field"><span>Current game</span><button onclick={() => invoke('toggle_achievement_overlay').then(() => status = 'Achievement overlay toggled').catch((error) => status = `Overlay unavailable: ${String(error)}`)}>Toggle overlay</button></div>{/if}
         <p class="settings-help">The overlay is created only while visible and closes completely when toggled off. Exclusive-fullscreen games may require the Xbox Game Bar companion.</p>
       </div>
+      <div class="settings-group">
+        <h3>Unlock filtering</h3>
+        <label class="field"><span>Maximum event age</span><input type="number" min="0" max="3600" bind:value={settings.notificationMaxAgeSeconds} onchange={save} /><small>seconds</small></label>
+        <label class="check"><input type="checkbox" bind:checked={settings.notificationRequireRunningGame} onchange={save} /> Require the configured game executable or a fullscreen app to be running</label>
+        <p class="settings-help">Games without a configured executable continue to notify. Set the maximum age to 0 to accept only unlocks stamped at the current second.</p>
+      </div>
       {:else if settingsTab === 'souvenir'}
       <div class="settings-group">
         <h3>Screenshot</h3>
@@ -826,6 +909,11 @@
         {#if settings.steamEnabled}<label class="field"><span>Games to display</span><select bind:value={settings.steamLibraryMode} onchange={save}><option value="played">Games with local Steam stats</option><option value="installed">Installed</option><option value="owned">Owned (public profile or API key)</option></select></label><label class="check"><input type="checkbox" bind:checked={settings.steamPublicFallback} onchange={save} /> Use the public Steam profile when client data is unavailable</label>{#if steamAccounts.length}<label class="field"><span>Steam account</span><select bind:value={settings.steamAccountId} onchange={save}><option value={undefined}>Most recently used account</option>{#each steamAccounts as account}<option value={account.accountId}>{account.name || account.steamId}{account.mostRecent ? ' (recent)' : ''}</option>{/each}</select></label>{:else}<label class="field"><span>Steam account</span><input bind:value={settings.steamAccountId} onchange={save} placeholder="Detected automatically" /></label>{/if}{/if}
       </div>
       <div class="settings-group">
+        <h3>Steam Web API fallback</h3>
+        <p class="settings-help">Optional fallback for profiles that cannot be read through the signed-in Steam client. Leave blank for local-only operation.</p>
+        <label class="field"><span>Web API key</span><input type="password" bind:value={settings.steamApiKey} onchange={save} autocomplete="off" placeholder="Optional" /></label>
+      </div>
+      <div class="settings-group">
         <h3>Local achievement sources</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.steamEmulatorEnabled} onchange={save} /> Steam emulator saves</label>
         <label class="check"><input type="checkbox" bind:checked={settings.greenLumaEnabled} onchange={save} /> GreenLuma registry saves</label>
@@ -836,21 +924,6 @@
         <label class="check"><input type="checkbox" bind:checked={settings.watchdogCacheEnabled} onchange={save} /> Original Achievement Watcher cache</label>
       </div>
       {:else if settingsTab === 'advanced'}
-      <div class="settings-group">
-        <h3>Steam Web API</h3>
-        <p class="settings-help">Optional fallback for profiles that cannot be read through the signed-in Steam client. Leave blank for local-only operation.</p>
-        <label class="field"><span>Web API key</span><input type="password" bind:value={settings.steamApiKey} onchange={save} autocomplete="off" placeholder="Optional" /></label>
-      </div>
-      <div class="settings-group">
-        <h3>Blacklist</h3>
-        <div class="field"><span>{settings.blacklistedGameIds.length} hidden game{settings.blacklistedGameIds.length === 1 ? '' : 's'}</span><button disabled={settings.blacklistedGameIds.length === 0} onclick={() => { if (settings) { settings.blacklistedGameIds = []; void save(); } }}>Clear blacklist</button></div>
-      </div>
-      <div class="settings-group">
-        <h3>Notification filtering</h3>
-        <label class="field"><span>Unlock timestamp threshold</span><input type="number" min="0" max="3600" bind:value={settings.notificationMaxAgeSeconds} onchange={save} /><small>seconds</small></label>
-        <label class="check"><input type="checkbox" bind:checked={settings.notificationRequireRunningGame} onchange={save} /> Require the configured game executable or a fullscreen app to be running</label>
-        <p class="settings-help">Games without a configured executable continue to notify. Set the threshold to 0 to accept only unlocks stamped at the current second.</p>
-      </div>
       <div class="settings-group">
         <h3>Unlock action</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.customActionEnabled} onchange={save} /> Run a program after an achievement unlocks</label>
@@ -878,7 +951,7 @@
         {#if settings.gameBarEnabled}<div class="field"><span>Xbox Game Bar</span><button onclick={() => invoke('test_game_bar').then(() => status = 'Game Bar acknowledged the test').catch((error) => status = `Game Bar test failed: ${String(error)}`)}>Run test</button></div>{/if}
         {#if settings.obsReplayEnabled}<div class="field"><span>OBS replay buffer</span><button onclick={() => invoke('test_obs').then(() => status = 'OBS replay buffer saved').catch((error) => status = `OBS test failed: ${String(error)}`)}>Run test</button></div>{/if}
         <div class="field"><span>Runtime status</span><button onclick={loadDiagnostics}>Refresh</button></div>
-        {#if diagnosticData}<div class="diagnostic-grid"><span>Version</span><strong>{diagnosticData.appVersion}</strong><span>Games</span><strong>{diagnosticData.gameCount}</strong><span>Achievement records</span><strong>{diagnosticData.observationCount}</strong><span>Enabled folders</span><strong>{diagnosticData.enabledSourceCount}</strong><span>Missing folders</span><strong class:warning={diagnosticData.missingSourceCount > 0}>{diagnosticData.missingSourceCount}</strong><span>Pending notifications</span><strong>{diagnosticData.pendingNotifications}</strong><span>Failed notifications</span><strong class:warning={diagnosticData.failedNotifications > 0}>{diagnosticData.failedNotifications}</strong></div>{#if diagnosticData.failedNotifications > 0}<div class="field"><span>Failed notification queue</span><button onclick={() => recoverFailedNotifications(false)}>Retry now</button><button onclick={() => recoverFailedNotifications(true)}>Dismiss</button></div>{/if}{#if diagnosticData.recentErrors.length}<div class="diagnostic"><span>Recent delivery errors</span>{#each diagnosticData.recentErrors as message}<code>{message}</code>{/each}</div>{/if}<div class="diagnostic"><span>Notification log</span><code>{diagnosticData.notificationLog}</code><button onclick={() => invoke('open_data_location', { location: 'notification_log' }).catch((error) => status = String(error))}>Open</button></div>{/if}
+        {#if diagnosticData}<div class="diagnostic-grid"><span>Version</span><strong>{diagnosticData.appVersion}</strong><span>Games</span><strong>{diagnosticData.gameCount}</strong><span>Achievement records</span><strong>{diagnosticData.observationCount}</strong><span>Enabled folders</span><strong>{diagnosticData.enabledSourceCount}</strong><span>Missing folders</span><strong class:warning={diagnosticData.missingSourceCount > 0}>{diagnosticData.missingSourceCount}</strong><span>Pending notifications</span><strong>{diagnosticData.pendingNotifications}</strong><span>Failed notifications</span><strong class:warning={diagnosticData.failedNotifications > 0}>{diagnosticData.failedNotifications}</strong></div>{#if diagnosticData.failedNotifications > 0}<div class="field"><span>Failed notification queue</span><button onclick={() => recoverFailedNotifications(false)}>Retry now</button><button onclick={(event) => requestConfirmation('Dismiss failed notifications?', 'The queued events will not be retried again.', 'Dismiss events', () => recoverFailedNotifications(true))}>Dismiss</button></div>{/if}{#if diagnosticData.recentErrors.length}<div class="diagnostic"><span>Recent delivery errors</span>{#each diagnosticData.recentErrors as message}<code>{message}</code>{/each}</div>{/if}<div class="diagnostic"><span>Notification log</span><code>{diagnosticData.notificationLog}</code><button onclick={() => invoke('open_data_location', { location: 'notification_log' }).catch((error) => status = String(error))}>Open</button></div>{/if}
       </div>
       {/if}
       </div></div>
@@ -901,23 +974,26 @@
   </div>
 {/if}
 {#if gameMenu}
-  <div class="context-menu" style={`left:${Math.min(gameMenu.x, innerWidth - 210)}px;top:${Math.max(8, Math.min(gameMenu.y, innerHeight - 450))}px`} role="menu" tabindex="-1" oncontextmenu={(event) => event.preventDefault()}>
+  <div bind:this={gameMenuElement} class="context-menu" style={`left:${Math.max(8, Math.min(gameMenu.x, innerWidth - 218))}px;top:${Math.max(8, Math.min(gameMenu.y, innerHeight - 450))}px`} role="menu" tabindex="-1" onkeydown={handleMenuKeydown} oncontextmenu={(event) => event.preventDefault()}>
     <div class="context-title">{gameMenu.game.name}</div>
     <button role="menuitem" onclick={() => launchGame(gameMenu!.game)}>Play</button>
     <button role="menuitem" onclick={() => openGame(gameMenu!.game)}>View achievements</button>
     <button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>
     <button role="menuitem" onclick={() => refreshGameMetadata(gameMenu!.game)}>Refresh game information</button>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => exportGoldbergAchievements(gameMenu!.game)}>Generate Goldberg achievements.json</button>
-    <button role="menuitem" onclick={() => clearGameMetadata(gameMenu!.game)}>Clear cached information</button>
-    <button role="menuitem" disabled={gameMenu.game.playtimeSeconds === 0 && gameMenu.game.lastPlayed === 0} onclick={() => resetGameActivity(gameMenu!.game)}>Reset playtime and last played</button>
+    <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Clear cached information?', `${game.name} will keep its local achievement progress, but downloaded names and artwork may need to be fetched again.`, 'Clear cache', () => clearGameMetadata(game)); }}>Clear cached information</button>
+    <button role="menuitem" disabled={gameMenu.game.playtimeSeconds === 0 && gameMenu.game.lastPlayed === 0} onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Reset game activity?', `Tracked playtime and the last-played date for ${game.name} will be cleared.`, 'Reset activity', () => resetGameActivity(game)); }}>Reset playtime and last played</button>
     <button role="menuitem" onclick={() => { gameMenu = null; invoke('open_data_location', { location: 'data' }).catch((error) => status = String(error)); }}>Open Achievement Watcher data folder</button>
     <div class="context-separator"></div>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'pcgamingwiki')}>PCGamingWiki</button>
     <div class="context-separator"></div>
-    <button role="menuitem" class="danger" onclick={() => blacklistGame(gameMenu!.game)}>Add to blacklist</button>
+    <button role="menuitem" class="danger" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Hide this game?', `${game.name} will be added to the blacklist and removed from the library.`, 'Hide game', () => blacklistGame(game)); }}>Add to blacklist</button>
   </div>
+{/if}
+{#if confirmation}
+  <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} busy={confirmationBusy} onConfirm={runConfirmedAction} onCancel={cancelConfirmation} />
 {/if}
 {#if gameConfig}
   <div class="dialog-overlay" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) gameConfig = null; }}>
