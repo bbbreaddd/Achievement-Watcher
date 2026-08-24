@@ -1,6 +1,10 @@
 use aw_core::NotificationEvent;
 use std::{
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 
@@ -19,19 +23,25 @@ struct Request {
 #[derive(Clone)]
 pub struct GameBarBridge {
     sender: mpsc::SyncSender<Request>,
+    connected: Arc<AtomicBool>,
 }
 
 impl GameBarBridge {
     pub fn start() -> Self {
         let (sender, receiver) = mpsc::sync_channel(8);
+        let connected = Arc::new(AtomicBool::new(false));
+        let server_connected = Arc::clone(&connected);
         std::thread::Builder::new()
             .name("game-bar-bridge".into())
-            .spawn(move || server(receiver))
+            .spawn(move || server(receiver, server_connected))
             .expect("failed to start Game Bar bridge");
-        Self { sender }
+        Self { sender, connected }
     }
 
     pub fn deliver(&self, token: &str, event: &NotificationEvent) -> Result<(), String> {
+        if !self.connected.load(Ordering::Acquire) {
+            return Err("Game Bar companion is unavailable".into());
+        }
         let (receipt, response) = mpsc::sync_channel(1);
         self.sender
             .try_send(Request {
@@ -48,7 +58,7 @@ impl GameBarBridge {
 }
 
 #[cfg(not(windows))]
-fn server(receiver: mpsc::Receiver<Request>) {
+fn server(receiver: mpsc::Receiver<Request>, _connected: Arc<AtomicBool>) {
     for request in receiver {
         let _ = request
             .receipt
@@ -57,7 +67,7 @@ fn server(receiver: mpsc::Receiver<Request>) {
 }
 
 #[cfg(windows)]
-fn server(receiver: mpsc::Receiver<Request>) {
+fn server(receiver: mpsc::Receiver<Request>, connected_state: Arc<AtomicBool>) {
     use std::{ffi::c_void, ptr};
     use windows_sys::Win32::{
         Foundation::{
@@ -119,7 +129,9 @@ fn server(receiver: mpsc::Receiver<Request>) {
         let connected = unsafe { ConnectNamedPipe(pipe, ptr::null_mut()) } != 0
             || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
         if connected {
+            connected_state.store(true, Ordering::Release);
             serve_client(pipe, &receiver);
+            connected_state.store(false, Ordering::Release);
         }
         unsafe {
             DisconnectNamedPipe(pipe);
