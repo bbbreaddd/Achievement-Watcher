@@ -745,6 +745,7 @@ struct Diagnostics {
     failed_notifications: u32,
     recent_errors: Vec<String>,
     notification_log: PathBuf,
+    watchers: Vec<jobs::WatcherHealth>,
 }
 
 #[tauri::command]
@@ -778,6 +779,7 @@ fn diagnostics(state: State<'_, AppState>) -> CommandResult<Diagnostics> {
         failed_notifications,
         recent_errors: store.recent_delivery_errors(5).map_err(error)?,
         notification_log: state.data_dir.join("notification.log"),
+        watchers: state.jobs.watcher_health(),
     })
 }
 
@@ -3432,13 +3434,16 @@ fn configure_watcher(
         }
         for path in event.paths {
             let state = handle.state::<AppState>();
-            if process_path(&handle, &state, &path, false).is_ok() {
+            let result = process_path(&handle, &state, &path, false);
+            watcher_heartbeat(&state, "File watcher", true, true, result.clone());
+            if result.is_ok() {
                 let _ = dispatch_pending(&handle, &state);
                 let _ = handle.emit("library-changed", ());
             }
         }
     })
     .map_err(error)?;
+    let mut watching = false;
     for location in settings.source_locations.iter().filter(|location| {
         location.enabled && source_kind_enabled(settings, location.kind) && location.path.exists()
     }) {
@@ -3450,10 +3455,25 @@ fn configure_watcher(
                     location.path.display()
                 ),
             );
+        } else {
+            watching = true;
         }
     }
     *state.watcher.lock().map_err(lock_error)? = Some(watcher);
+    watcher_heartbeat(state, "File watcher", watching, false, Ok(()));
     Ok(())
+}
+
+fn watcher_heartbeat(
+    state: &State<'_, AppState>,
+    name: &str,
+    enabled: bool,
+    worked: bool,
+    result: CommandResult<()>,
+) {
+    state
+        .jobs
+        .heartbeat(name, enabled, worked, result, Utc::now().timestamp());
 }
 
 fn start_background_baseline_scan(app: AppHandle) {
@@ -3501,12 +3521,25 @@ fn start_steam_monitor(app: AppHandle) {
             let settings = match state.store.lock() {
                 Ok(store) => match store.load_settings() {
                     Ok(settings) => settings,
-                    Err(_) => continue,
+                    Err(error) => {
+                        watcher_heartbeat(
+                            &state,
+                            "Steam monitor",
+                            true,
+                            false,
+                            Err(error.to_string()),
+                        );
+                        continue;
+                    }
                 },
-                Err(_) => continue,
+                Err(error) => {
+                    watcher_heartbeat(&state, "Steam monitor", true, false, Err(error.to_string()));
+                    continue;
+                }
             };
             if !settings.steam_enabled {
                 previous_app = None;
+                watcher_heartbeat(&state, "Steam monitor", false, false, Ok(()));
                 std::thread::sleep(Duration::from_secs(8));
                 continue;
             }
@@ -3541,6 +3574,7 @@ fn start_steam_monitor(app: AppHandle) {
                 last_activity_tick = std::time::Instant::now();
             }
             let Some(game_id) = running.as_deref() else {
+                watcher_heartbeat(&state, "Steam monitor", true, false, Ok(()));
                 continue;
             };
             if previous_app.as_deref() == Some(game_id) {
@@ -3562,6 +3596,7 @@ fn start_steam_monitor(app: AppHandle) {
                     && source_kind_enabled(&settings, location.kind)
                     && location.kind == aw_core::SourceKind::Steam
             }) else {
+                watcher_heartbeat(&state, "Steam monitor", false, false, Ok(()));
                 continue;
             };
             let detected_account = steam::stats_files(location)
@@ -3574,7 +3609,9 @@ fn start_steam_monitor(app: AppHandle) {
                 .or(detected_account.as_deref())
                 .unwrap_or_default();
             let baseline = app_changed;
-            match sync_steam_game(&app, &state, location, account_id, game_id, baseline) {
+            let result = sync_steam_game(&app, &state, location, account_id, game_id, baseline);
+            watcher_heartbeat(&state, "Steam monitor", true, true, result.clone());
+            match result {
                 Ok(()) => {
                     let _ = dispatch_pending(&app, &state);
                     let _ = app.emit("library-changed", ());
@@ -3595,12 +3632,31 @@ fn start_process_monitor(app: AppHandle) {
             let settings = match state.store.lock() {
                 Ok(store) => match store.load_settings() {
                     Ok(settings) => settings,
-                    Err(_) => continue,
+                    Err(error) => {
+                        watcher_heartbeat(
+                            &state,
+                            "Process monitor",
+                            true,
+                            false,
+                            Err(error.to_string()),
+                        );
+                        continue;
+                    }
                 },
-                Err(_) => continue,
+                Err(error) => {
+                    watcher_heartbeat(
+                        &state,
+                        "Process monitor",
+                        true,
+                        false,
+                        Err(error.to_string()),
+                    );
+                    continue;
+                }
             };
             if settings.game_launch_configs.is_empty() {
                 last_seen.clear();
+                watcher_heartbeat(&state, "Process monitor", false, false, Ok(()));
                 std::thread::sleep(Duration::from_secs(10));
                 continue;
             }
@@ -3658,6 +3714,13 @@ fn start_process_monitor(app: AppHandle) {
                 emit_counter = 0;
                 let _ = app.emit("library-changed", ());
             }
+            watcher_heartbeat(
+                &state,
+                "Process monitor",
+                true,
+                !last_seen.is_empty(),
+                Ok(()),
+            );
         }
     });
 }
@@ -3671,16 +3734,43 @@ fn start_registry_monitor(app: AppHandle) {
             let settings = match state.store.lock() {
                 Ok(store) => match store.load_settings() {
                     Ok(settings) => settings,
-                    Err(_) => continue,
+                    Err(error) => {
+                        watcher_heartbeat(
+                            &state,
+                            "Registry monitor",
+                            true,
+                            false,
+                            Err(error.to_string()),
+                        );
+                        continue;
+                    }
                 },
-                Err(_) => continue,
+                Err(error) => {
+                    watcher_heartbeat(
+                        &state,
+                        "Registry monitor",
+                        true,
+                        false,
+                        Err(error.to_string()),
+                    );
+                    continue;
+                }
             };
             if !settings.green_luma_enabled && !settings.luma_play_enabled {
                 first_poll = true;
+                watcher_heartbeat(&state, "Registry monitor", false, false, Ok(()));
                 std::thread::sleep(Duration::from_secs(12));
                 continue;
             }
-            match sync_registry_sources(&app, &state, &settings, first_poll) {
+            let result = sync_registry_sources(&app, &state, &settings, first_poll);
+            watcher_heartbeat(
+                &state,
+                "Registry monitor",
+                true,
+                result.as_ref().is_ok_and(|count| *count > 0),
+                result.as_ref().map(|_| ()).map_err(Clone::clone),
+            );
+            match result {
                 Ok(count) => {
                     first_poll = false;
                     if count > 0 {
@@ -3699,7 +3789,9 @@ fn start_notification_retry_monitor(app: AppHandle) {
         loop {
             std::thread::sleep(Duration::from_secs(5));
             let state = app.state::<AppState>();
-            if let Err(message) = dispatch_pending(&app, &state) {
+            let result = dispatch_pending(&app, &state);
+            watcher_heartbeat(&state, "Notification retry", true, false, result.clone());
+            if let Err(message) = result {
                 notification_log(&state, &format!("Notification retry: {message}"));
             }
         }

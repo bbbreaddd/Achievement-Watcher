@@ -1,5 +1,8 @@
 use serde::Serialize;
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::{
+    collections::BTreeMap,
+    sync::{Condvar, Mutex, MutexGuard},
+};
 
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +13,17 @@ pub struct OperationSnapshot {
     pub total: usize,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
+    pub last_success_at: Option<i64>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatcherHealth {
+    pub name: String,
+    pub enabled: bool,
+    pub last_heartbeat_at: i64,
+    pub last_work_at: Option<i64>,
     pub last_success_at: Option<i64>,
     pub last_error: Option<String>,
 }
@@ -27,6 +41,7 @@ pub struct JobCoordinator {
     scan: Mutex<ScanState>,
     scan_finished: Condvar,
     operation: Mutex<OperationSnapshot>,
+    watchers: Mutex<BTreeMap<String, WatcherHealth>>,
 }
 
 impl Default for JobCoordinator {
@@ -36,6 +51,7 @@ impl Default for JobCoordinator {
             scan: Mutex::new(ScanState::default()),
             scan_finished: Condvar::new(),
             operation: Mutex::new(OperationSnapshot::default()),
+            watchers: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -141,6 +157,51 @@ impl JobCoordinator {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
     }
+
+    pub fn heartbeat(
+        &self,
+        name: &str,
+        enabled: bool,
+        worked: bool,
+        result: Result<(), String>,
+        now: i64,
+    ) {
+        let mut watchers = self
+            .watchers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let watcher = watchers
+            .entry(name.into())
+            .or_insert_with(|| WatcherHealth {
+                name: name.into(),
+                enabled,
+                last_heartbeat_at: now,
+                last_work_at: None,
+                last_success_at: None,
+                last_error: None,
+            });
+        watcher.enabled = enabled;
+        watcher.last_heartbeat_at = now;
+        if worked {
+            watcher.last_work_at = Some(now);
+        }
+        match result {
+            Ok(()) => {
+                watcher.last_success_at = Some(now);
+                watcher.last_error = None;
+            }
+            Err(error) => watcher.last_error = Some(error),
+        }
+    }
+
+    pub fn watcher_health(&self) -> Vec<WatcherHealth> {
+        self.watchers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .values()
+            .cloned()
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +268,18 @@ mod tests {
         assert_eq!(worker.join().unwrap(), Ok(3));
         assert_eq!(queued, Ok(3));
         assert_eq!(*baselines.lock().unwrap(), vec![false, true]);
+    }
+
+    #[test]
+    fn watcher_heartbeat_keeps_the_latest_error_and_work_time() {
+        let coordinator = JobCoordinator::default();
+        coordinator.heartbeat("Steam", true, false, Err("offline".into()), 10);
+        coordinator.heartbeat("Steam", true, true, Ok(()), 20);
+
+        let health = coordinator.watcher_health().remove(0);
+        assert_eq!(health.last_heartbeat_at, 20);
+        assert_eq!(health.last_work_at, Some(20));
+        assert_eq!(health.last_success_at, Some(20));
+        assert_eq!(health.last_error, None);
     }
 }
