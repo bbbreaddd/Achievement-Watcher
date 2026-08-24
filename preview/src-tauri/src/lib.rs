@@ -2981,7 +2981,6 @@ fn start_steam_monitor(app: AppHandle) {
         let mut last_activity_tick = std::time::Instant::now();
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            let running = steam::running_app_id();
             let state = app.state::<AppState>();
             let settings = match state.store.lock() {
                 Ok(store) => match store.load_settings() {
@@ -2990,6 +2989,12 @@ fn start_steam_monitor(app: AppHandle) {
                 },
                 Err(_) => continue,
             };
+            if !settings.steam_enabled {
+                previous_app = None;
+                std::thread::sleep(Duration::from_secs(8));
+                continue;
+            }
+            let running = steam::running_app_id();
             let app_changed = running.as_deref() != previous_app.as_deref();
             if app_changed {
                 if let Some(stopped) = previous_app.take()
@@ -3036,9 +3041,6 @@ fn start_steam_monitor(app: AppHandle) {
                     last_activity_tick = std::time::Instant::now();
                 }
             }
-            if !settings.steam_enabled {
-                continue;
-            }
             let Some(location) = settings.source_locations.iter().find(|location| {
                 location.enabled
                     && source_kind_enabled(&settings, location.kind)
@@ -3083,6 +3085,7 @@ fn start_process_monitor(app: AppHandle) {
             };
             if settings.game_launch_configs.is_empty() {
                 last_seen.clear();
+                std::thread::sleep(Duration::from_secs(10));
                 continue;
             }
             let running = process::running_names();
@@ -3158,6 +3161,7 @@ fn start_registry_monitor(app: AppHandle) {
             };
             if !settings.green_luma_enabled && !settings.luma_play_enabled {
                 first_poll = true;
+                std::thread::sleep(Duration::from_secs(12));
                 continue;
             }
             match sync_registry_sources(&app, &state, &settings, first_poll) {
