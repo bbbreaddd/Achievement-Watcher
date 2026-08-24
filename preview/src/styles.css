@@ -300,9 +300,10 @@ footer span.busy { background: #d59a2e; }
 .notification-progress { position: relative; width: 210px; height: 10px; overflow: hidden; background: #101923; }
 .notification-progress > i { display: block; height: 100%; background: #66c0f4; }
 .notification-progress > span { position: absolute; inset: 0; color: #fff !important; font-size: 8px !important; line-height: 10px; text-align: center; letter-spacing: 0 !important; text-transform: none !important; }
-html:has(.notification-shell), html:has(.original-preset-frame) { background: transparent; }
-body:has(.notification-shell), body:has(.original-preset-frame) { min-height: 88px; border: 0; background: transparent; overflow: hidden; }
-body:has(.overlay-panel) { border: 0; background: transparent; }
+html.notification-view, html:has(.notification-shell), html:has(.original-preset-frame) { background: transparent; }
+html.notification-view body, body:has(.notification-shell), body:has(.original-preset-frame) { min-height: 0; border: 0; background: transparent; overflow: hidden; }
+html.notification-view body, html.notification-view #app { width: 100%; height: 100%; }
+html.achievement-overlay-view body, body:has(.overlay-panel) { border: 0; background: transparent; }
 .overlay-panel { width: 100%; height: 100vh; display: flex; flex-direction: column; overflow: hidden; border: 1px solid #67727d; border-radius: 10px; background: #05080dcc; color: #fff; font-family: OpenSans, sans-serif; transform-origin: top left; }
 .overlay-panel > header { min-height: 42px; display: flex; align-items: center; gap: 12px; padding-left: 14px; border-bottom: 1px solid #56616d; background: #080b10e8; cursor: move; }
 .overlay-panel > header strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

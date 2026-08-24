@@ -3543,6 +3543,7 @@ fn show_overlay(
             .inner_size(width * scale, height * scale)
             .decorations(false)
             .transparent(true)
+            .shadow(false)
             .always_on_top(true)
             .focused(false)
             .visible(false)

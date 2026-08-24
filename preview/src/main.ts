@@ -7,9 +7,13 @@ import './styles.css';
 
 const label = getCurrentWindow().label;
 const view = new URLSearchParams(window.location.search).get('view');
-const component = label === 'notification' || view === 'notification'
+const isNotification = label === 'notification' || view === 'notification';
+const isAchievementOverlay = label === 'achievement-overlay' || view === 'achievement-overlay';
+if (isNotification) document.documentElement.classList.add('notification-view');
+if (isAchievementOverlay) document.documentElement.classList.add('achievement-overlay-view');
+const component = isNotification
   ? Notification
-  : label === 'achievement-overlay' || view === 'achievement-overlay'
+  : isAchievementOverlay
     ? AchievementOverlay
     : App;
 mount(component, { target: document.getElementById('app')! });
