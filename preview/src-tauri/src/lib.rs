@@ -2353,28 +2353,43 @@ fn import_community_schema_as(
 }
 
 #[tauri::command]
-fn test_notification(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
-    let settings = state
-        .store
-        .lock()
-        .map_err(lock_error)?
-        .load_settings()
-        .map_err(error)?;
-    if settings.notification_mode == NotificationMode::NativeOnly {
-        deliver_native(&app, &state, &sample_notification())
-    } else {
-        show_overlay(&app, &state, sample_notification())
-    }
+async fn test_notification(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let settings = state
+            .store
+            .lock()
+            .map_err(lock_error)?
+            .load_settings()
+            .map_err(error)?;
+        if settings.notification_mode == NotificationMode::NativeOnly {
+            deliver_native(&app, &state, &sample_notification())
+        } else {
+            show_overlay(&app, &state, sample_notification())
+        }
+    })
+    .await
+    .map_err(error)?
 }
 
 #[tauri::command]
-fn test_progress_notification(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
-    deliver_transient(&app, &state, sample_progress_notification())
+async fn test_progress_notification(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        deliver_transient(&app, &state, sample_progress_notification())
+    })
+    .await
+    .map_err(error)?
 }
 
 #[tauri::command]
-fn test_playtime_notification(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
-    deliver_transient(&app, &state, sample_playtime_notification())
+async fn test_playtime_notification(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        deliver_transient(&app, &state, sample_playtime_notification())
+    })
+    .await
+    .map_err(error)?
 }
 
 fn deliver_transient(
