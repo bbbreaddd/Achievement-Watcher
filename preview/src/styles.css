@@ -196,7 +196,7 @@ section { max-width: 1180px; margin: 0 auto; }
 .settings-group { margin-bottom: 16px; border: 1px solid #34465d; background: #1d2c40; }
 .settings-group > h3 { padding: 10px 14px; border-bottom: 1px solid #34465d; background: #172437; font-size: 13px; font-weight: 600; }
 .field, .check, .token-row { min-height: 48px; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid #2c3d53; }
-.field > span, .token-row > span { flex: 0 0 150px; color: #c5ceda; }
+.field > span, .field > label, .token-row > span { flex: 0 0 150px; color: #c5ceda; }
 .field select, .field input { width: min(360px, 100%); padding: 6px 8px; border: 1px solid #40516a; border-radius: 1px; color: #e7edf4; background: #111c2b; }
 .check { cursor: pointer; }
 .check.nested { padding-left: 42px; color: #9eabb8; }
@@ -311,7 +311,7 @@ html.achievement-overlay-view body, body:has(.overlay-panel) { border: 0; backgr
 .overlay-message { flex: 1; display: grid; place-items: center; padding: 24px; color: #ccd3da; text-align: center; }
 @media (max-width: 700px) {
   .field, .token-row { align-items: flex-start; flex-direction: column; gap: 6px; }
-  .field > span, .token-row > span { flex-basis: auto; }
+  .field > span, .field > label, .token-row > span { flex-basis: auto; }
   .source { grid-template-columns: 1fr auto; padding: 8px 0; }
   .source > label { grid-column: 1 / -1; }
   .folder-setting, .diagnostic { grid-template-columns: 1fr auto; }
