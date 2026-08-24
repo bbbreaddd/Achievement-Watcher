@@ -298,7 +298,22 @@
         sourceId: activeAchievementSource,
         gameId: game.gameId,
       });
-      achievementStatus = achievements.length === 0 ? 'No achievements were read from this source.' : '';
+      let metadataError = '';
+      if (achievements.length === 0 && hasSteamAppId(game)) {
+        achievementStatus = 'Fetching Steam achievement information…';
+        try {
+          await invoke('refresh_metadata', { gameId: game.gameId });
+          achievements = await invoke<AchievementObservation[]>('list_achievements', {
+            sourceId: activeAchievementSource,
+            gameId: game.gameId,
+          });
+        } catch (error) {
+          metadataError = String(error);
+        }
+      }
+      achievementStatus = achievements.length === 0
+        ? `No achievements were read from this source.${metadataError ? ` Steam information could not be refreshed: ${metadataError}` : ''}`
+        : '';
       if (achievementId) {
         await tick();
         document.querySelector(`[data-achievement-id="${CSS.escape(achievementId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
