@@ -550,6 +550,8 @@
         await loadDiagnostics();
         applyLanguage(settings.language);
         await loadAvatar();
+        await refresh();
+        status = games.length ? 'Refreshing library…' : 'Searching for achievement data…';
         await detectSources(false, false);
         steamAccounts = await invoke<typeof steamAccounts>('steam_accounts');
         await scan(true);
