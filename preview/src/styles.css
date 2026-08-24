@@ -16,11 +16,11 @@ h1, h2, h3, p { margin: 0; }
 .title-bar .watcher-state { display: flex; align-items: center; gap: 9px; font-size: 11px; }
 .title-bar .watcher-state > span:first-child { width: 8px; height: 8px; border-radius: 50%; background: #0bbf0b; box-shadow: 0 0 0 3px #0bbf0b25; }
 .title-bar .watcher-state > span:first-child.busy { background: #db8719; box-shadow: 0 0 0 3px #db871925; }
-.title-bar nav { align-self: stretch; display: flex; }
-.title-bar nav button { min-width: 45px; min-height: 29px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #8d929a; line-height: 29px; }
-.title-bar nav button:hover, .title-bar nav button.active { background: #ffffff20; color: #dedede; }
-.title-bar nav button:disabled { opacity: 1; }
-.title-bar nav button.settings { margin-right: 6px; border-right: 1px solid #ffffff18; }
+.title-actions, .title-bar nav { align-self: stretch; display: flex; }
+.title-actions > button, .title-bar nav button { min-width: 45px; min-height: 29px; padding: 0; border: 0; border-radius: 0; background: transparent; color: #8d929a; line-height: 29px; }
+.title-actions > button:hover, .title-actions > button.active, .title-bar nav button:hover { background: #ffffff20; color: #dedede; }
+.title-actions > button:disabled { opacity: 1; }
+.title-actions > button.settings { margin-right: 6px; border-right: 1px solid #ffffff18; }
 .title-bar nav button.close:hover { background: #d72828e6; color: #fff; }
 main { height: calc(100vh - 30px); overflow: hidden; }
 section { max-width: 1180px; margin: 0 auto; }
