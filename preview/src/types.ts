@@ -12,6 +12,7 @@ export interface SourceLocation {
 export interface AppSettings {
   language: string;
   username: string;
+  usernameCustomized?: boolean;
   profileAvatarPath?: string;
   profileAvatarSquared: boolean;
   thumbnailPortrait: boolean;

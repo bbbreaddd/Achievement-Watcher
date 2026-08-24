@@ -1771,6 +1771,7 @@ fn list_achievements(
 struct GameSourceChoice {
     source_id: String,
     source_kind: Option<aw_core::SourceKind>,
+    source_path: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -1810,6 +1811,11 @@ fn game_sources(
     let mut result: Vec<_> = choices
         .into_iter()
         .map(|(source_id, source_kind)| GameSourceChoice {
+            source_path: settings
+                .source_locations
+                .iter()
+                .find(|location| location.id == source_id)
+                .map(|location| location.path.clone()),
             source_id,
             source_kind,
         })
@@ -1821,6 +1827,7 @@ fn game_sources(
             GameSourceChoice {
                 source_id: "merged".into(),
                 source_kind: result.first().and_then(|choice| choice.source_kind),
+                source_path: None,
             },
         );
     }

@@ -250,7 +250,10 @@ fn apply_legacy_settings(content: &str, settings: &mut AppSettings) {
         };
         let value = value.trim();
         match (section, key.trim()) {
-            ("general", "username") => settings.username = value.trim_matches('"').to_string(),
+            ("general", "username") => {
+                settings.username = value.trim_matches('"').to_string();
+                settings.username_customized = Some(true);
+            }
             ("general", "skippedVersion")
                 if !value.trim_matches('"').eq_ignore_ascii_case("none") =>
             {
