@@ -1111,13 +1111,15 @@
     {#if settings?.showPlayButton}<button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>{/if}
     <button role="menuitem" onclick={() => refreshGameMetadata(gameMenu!.game)}>Refresh game information</button>
     <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Clear cached information?', `${game.name} will keep its local achievement progress, but downloaded names and artwork may need to be fetched again.`, 'Clear cache', () => clearGameMetadata(game)); }}>Clear cached information</button>
-    {#if gameMenu.sources === undefined}<button role="menuitem" disabled title="Checking local achievement sources">Checking achievement sources…</button>{:else if gameMenu.sources.length === 0}<button role="menuitem" disabled title="No local achievement file is available for this game">No local achievement source</button>{:else}{#each gameMenu.sources as source}<button role="menuitem" title={source.sourcePath ? `Open source under ${source.sourcePath}` : sourceDescription(source.sourceKind)} onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: source.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open {sourceLabel(source.sourceKind)} source</button>{/each}{/if}
+    {#if gameMenu.sources === undefined}<div class="context-note">Checking achievement sources…</div>{:else if gameMenu.sources.length === 0}<div class="context-note">No local achievement source</div>{:else}{#each gameMenu.sources as source}<button role="menuitem" title={source.sourcePath ? `Open source under ${source.sourcePath}` : sourceDescription(source.sourceKind)} onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: source.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open {sourceLabel(source.sourceKind)} source</button>{/each}{/if}
+    {#if hasSteamAppId(gameMenu.game)}
+      <div class="context-separator"></div>
+      <button role="menuitem" onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
+      <button role="menuitem" onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>
+      <button role="menuitem" onclick={() => openGameWebsite(gameMenu!.game, 'pcgamingwiki')}>PCGamingWiki</button>
+    {/if}
     <div class="context-separator"></div>
-    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
-    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>
-    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'pcgamingwiki')}>PCGamingWiki</button>
-    <div class="context-separator"></div>
-    <button role="menuitem" class="danger" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Hide this game?', `${game.name} will be added to the blacklist and removed from the library.`, 'Hide game', () => blacklistGame(game)); }}>Add to blacklist</button>
+    <button role="menuitem" class="danger" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Hide this game?', `${game.name} will be added to the blacklist and removed from the library.`, 'Hide game', () => blacklistGame(game)); }}>Hide game</button>
   </div>
 {/if}
 {#if confirmation}
