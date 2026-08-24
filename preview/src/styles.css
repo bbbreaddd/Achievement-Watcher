@@ -58,12 +58,8 @@ section { max-width: 1180px; margin: 0 auto; }
 .game-header img { z-index: 1; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: cover; }
 .game-header > span:first-child { grid-area: 1 / 1; }
 .game-box:hover .game-header img, .game-box:hover .game-header > span:first-child { opacity: .45; }
-.play-button, .config-button, .achievement-button { position: absolute; z-index: 3; min-width: 0; border: 0; border-radius: 50%; background: #0009; color: #fff; opacity: .25; transition: opacity .2s ease; }
-.play-button { top: 50%; left: 50%; width: 44px; height: 44px; padding: 0 0 0 3px; transform: translate(-50%, -50%); font-size: 18px; }
-.config-button, .achievement-button { top: 5px; width: 29px; height: 29px; min-height: 29px; padding: 0; font-size: 13px; }
-.config-button { right: 5px; }
-.achievement-button { left: 5px; }
-.game-header:hover .play-button, .game-header:hover .config-button, .game-header:hover .achievement-button, .play-button:focus-visible, .config-button:focus-visible, .achievement-button:focus-visible { opacity: .85; }
+.game-menu-button { position: absolute; z-index: 3; top: 6px; right: 6px; width: 30px; min-width: 30px; height: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 2px; background: #0b111acc; color: #fff; opacity: 0; transition: opacity .14s ease; }
+.game-header:hover .game-menu-button, .game-menu-button:focus-visible { opacity: .9; }
 #game-list .game-info { max-width: 230px; padding: 5px 10px 10px; }
 #game-list .game-info > div:first-child { display: flex; align-items: center; gap: 6px; min-height: 22px; }
 #game-list .game-info strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px OpenSans, sans-serif; }
@@ -262,6 +258,11 @@ footer > span:first-child.busy { background: #d59a2e; }
 .context-menu .context-separator { height: 1px; margin: 4px 7px; background: #34465d; }
 .dialog-overlay { position: fixed; z-index: 600; inset: 30px 0 30px; display: grid; place-items: center; background: #080d14bb; }
 .game-config-dialog { width: min(620px, 90vw); padding: 0; overflow: hidden; border: 1px solid #40516a; border-radius: 3px; background: #1b2838; box-shadow: 0 12px 36px #000b; }
+.confirm-dialog { width: min(430px, 90vw); overflow: hidden; border: 1px solid #40516a; border-radius: 3px; background: #1b2838; box-shadow: 0 12px 36px #000b; }
+.confirm-dialog h2 { padding: 14px 18px; border-bottom: 1px solid #34465d; background: #15202d; font-size: 17px; }
+.confirm-dialog p { padding: 18px; color: #b5c0cb; line-height: 1.5; }
+.danger-action { border-color: #8e4949; background: #713838; }
+.danger-action:hover { border-color: #b35b5b; background: #8a4141; }
 .game-config-dialog h2 { padding: 14px 18px; border-bottom: 1px solid #34465d; background: #15202d; font-size: 17px; }
 .game-config-dialog > label { display: block; padding: 13px 18px 0; }
 .game-config-dialog > label > span { display: block; margin-bottom: 6px; color: #aeb9c5; font-size: 12px; }
