@@ -1,7 +1,13 @@
 use crate::{
     AppSettings, MigrationReport, Result, SourceKind, SourceLocation, Store, parser::parse_json,
 };
-use std::{fs, path::Path};
+use std::{
+    collections::hash_map::DefaultHasher,
+    fs,
+    hash::{Hash, Hasher},
+    path::Path,
+    time::UNIX_EPOCH,
+};
 
 pub fn import_legacy(store: &mut Store, legacy_root: &Path) -> Result<MigrationReport> {
     // Keep the import idempotent while allowing newer builds to replay expanded
@@ -9,7 +15,7 @@ pub fn import_legacy(store: &mut Store, legacy_root: &Path) -> Result<MigrationR
     // Bump this suffix whenever the set or meaning of imported legacy data changes.
     let key = format!("{}#parity-v2", legacy_root.to_string_lossy());
     if let Some(report) = store.migration_report(&key)? {
-        import_game_metadata(store, legacy_root);
+        import_game_metadata_if_changed(store, legacy_root)?;
         return Ok(report);
     }
 
@@ -130,14 +136,66 @@ pub fn import_legacy(store: &mut Store, legacy_root: &Path) -> Result<MigrationR
     }
 
     store.save_migration_report(&key, &report)?;
-    import_game_metadata(store, legacy_root);
+    import_game_metadata_if_changed(store, legacy_root)?;
     Ok(report)
 }
 
-fn import_game_metadata(store: &Store, legacy_root: &Path) {
+fn import_game_metadata_if_changed(store: &Store, legacy_root: &Path) -> Result<()> {
+    let key = legacy_metadata_key(legacy_root)?;
+    if store.migration_report(&key)?.is_some() {
+        return Ok(());
+    }
+    import_game_metadata(store, legacy_root)?;
+    store.save_migration_report(&key, &MigrationReport::default())
+}
+
+fn legacy_metadata_key(legacy_root: &Path) -> Result<String> {
+    let schema_root = legacy_root.join("steam_cache/schema");
+    let mut files = Vec::new();
+    match fs::read_dir(&schema_root) {
+        Ok(languages) => {
+            for language in languages {
+                let language = language?;
+                if !language.file_type()?.is_dir() {
+                    continue;
+                }
+                for entry in fs::read_dir(language.path())? {
+                    let entry = entry?;
+                    let path = entry.path();
+                    if path.extension().and_then(|value| value.to_str()) == Some("db") {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    files.sort();
+    let mut signature = DefaultHasher::new();
+    for path in files {
+        path.hash(&mut signature);
+        if let Ok(metadata) = path.metadata() {
+            metadata.len().hash(&mut signature);
+            metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_nanos())
+                .hash(&mut signature);
+        }
+    }
+    Ok(format!(
+        "{}#metadata-v1-{:016x}",
+        legacy_root.to_string_lossy(),
+        signature.finish()
+    ))
+}
+
+fn import_game_metadata(store: &Store, legacy_root: &Path) -> Result<()> {
     let schema_root = legacy_root.join("steam_cache/schema");
     let Ok(languages) = fs::read_dir(schema_root) else {
-        return;
+        return Ok(());
     };
     for language in languages.filter_map(|entry| entry.ok()) {
         let Ok(files) = fs::read_dir(language.path()) else {
@@ -172,7 +230,7 @@ fn import_game_metadata(store: &Store, legacy_root: &Path) {
                         .and_then(|value| value.as_str())
                 });
             let icon = icon.map(|value| steam_image_url(game_id, value, true));
-            let _ = store.save_game_metadata(game_id, name, icon.as_deref());
+            store.save_game_metadata(game_id, name, icon.as_deref())?;
             let achievements = object
                 .get("achievement")
                 .and_then(|value| value.get("list"))
@@ -203,7 +261,7 @@ fn import_game_metadata(store: &Store, legacy_root: &Path) {
                         .or_else(|| item.get("iconLocked"))
                         .and_then(|value| value.as_str())
                         .map(|value| steam_image_url(game_id, value, false));
-                    let _ = store.save_achievement_metadata(
+                    store.save_achievement_metadata(
                         game_id,
                         id,
                         display_name,
@@ -217,11 +275,12 @@ fn import_game_metadata(store: &Store, legacy_root: &Path) {
                                     .or_else(|| value.as_i64().map(|value| value != 0))
                             })
                             .unwrap_or(false),
-                    );
+                    )?;
                 }
             }
         }
     }
+    Ok(())
 }
 
 fn steam_image_url(game_id: &str, value: &str, header: bool) -> String {
@@ -546,6 +605,15 @@ mod tests {
         }];
         store.enrich_observations(&mut observations).unwrap();
         assert_eq!(observations[0].display_name.as_deref(), Some("Lab Rat"));
+
+        store
+            .save_game_metadata("400", "Locally corrected title", None)
+            .unwrap();
+        import_legacy(&mut store, legacy.path()).unwrap();
+        assert_eq!(
+            store.game_metadata("400").unwrap().unwrap().0,
+            "Locally corrected title"
+        );
     }
 
     #[test]
