@@ -23,6 +23,10 @@ pub const ACHIEVEMENT_FILES: &[&str] = &[
 pub fn discover_files(locations: &[SourceLocation]) -> Vec<PathBuf> {
     let mut files = BTreeSet::new();
     for source in locations.iter().filter(|source| source.enabled) {
+        if source.kind == SourceKind::GogGalaxy {
+            files.extend(crate::gog::gameplay_databases(&source.path));
+            continue;
+        }
         let max_depth = if source.kind == SourceKind::Rpcs3 {
             8
         } else {
@@ -61,7 +65,8 @@ pub fn discover_files(locations: &[SourceLocation]) -> Vec<PathBuf> {
 }
 
 pub fn infer_game_id(path: &Path) -> Option<String> {
-    infer_configured_game_id(path)
+    crate::gog::game_id_from_path(path)
+        .or_else(|| infer_configured_game_id(path))
         .or_else(|| infer_remote_game_id(path))
         .or_else(|| {
             path.ancestors()

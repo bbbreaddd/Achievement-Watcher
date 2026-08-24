@@ -1,4 +1,4 @@
-export type SourceKind = 'steam' | 'steam_emulator' | 'green_luma' | 'rpcs3' | 'epic' | 'gog' | 'luma_play' | 'watchdog_cache';
+export type SourceKind = 'steam' | 'gog_galaxy' | 'steam_emulator' | 'green_luma' | 'rpcs3' | 'epic' | 'gog' | 'luma_play' | 'watchdog_cache';
 export type NotificationMode = 'overlay_with_native_fallback' | 'overlay_only' | 'native_only';
 
 export interface SourceLocation {
@@ -79,6 +79,7 @@ export interface AppSettings {
   rpcs3Enabled: boolean;
   epicEnabled: boolean;
   gogEnabled: boolean;
+  gogGalaxyEnabled: boolean;
   lumaPlayEnabled: boolean;
   watchdogCacheEnabled: boolean;
   steamPublicFallback: boolean;

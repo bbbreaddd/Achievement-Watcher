@@ -869,6 +869,7 @@ fn save_settings_sync(
         || previous.rpcs3_enabled != settings.rpcs3_enabled
         || previous.epic_enabled != settings.epic_enabled
         || previous.gog_enabled != settings.gog_enabled
+        || previous.gog_galaxy_enabled != settings.gog_galaxy_enabled
         || previous.luma_play_enabled != settings.luma_play_enabled
         || previous.watchdog_cache_enabled != settings.watchdog_cache_enabled;
 
@@ -1123,6 +1124,7 @@ fn source_priority(kind: aw_core::SourceKind) -> u8 {
         aw_core::SourceKind::Gog => 5,
         aw_core::SourceKind::LumaPlay => 6,
         aw_core::SourceKind::WatchdogCache => 7,
+        aw_core::SourceKind::GogGalaxy => 0,
     }
 }
 
@@ -1144,6 +1146,7 @@ fn source_kind_enabled(settings: &AppSettings, kind: aw_core::SourceKind) -> boo
         aw_core::SourceKind::Rpcs3 => settings.rpcs3_enabled,
         aw_core::SourceKind::Epic => settings.epic_enabled,
         aw_core::SourceKind::Gog => settings.gog_enabled,
+        aw_core::SourceKind::GogGalaxy => settings.gog_galaxy_enabled,
         aw_core::SourceKind::LumaPlay => settings.luma_play_enabled,
         aw_core::SourceKind::WatchdogCache => settings.watchdog_cache_enabled,
     }
@@ -1217,6 +1220,11 @@ fn detect_sources_sync(deep: bool) -> Vec<aw_core::SourceLocation> {
         std::env::var_os("LOCALAPPDATA"),
         &["SKIDROW", "anadius/LSX emu/achievement_watcher"],
         aw_core::SourceKind::SteamEmulator,
+    );
+    add(
+        std::env::var_os("LOCALAPPDATA"),
+        &["GOG.com/Galaxy/Applications"],
+        aw_core::SourceKind::GogGalaxy,
     );
     add(
         std::env::var_os("USERPROFILE"),
@@ -3265,6 +3273,21 @@ fn process_path(
         }
         return sync_steam_game(app, state, location, &account_id, &game_id, baseline);
     }
+    if location.kind == aw_core::SourceKind::GogGalaxy {
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            return Ok(());
+        };
+        let database = if file_name.eq_ignore_ascii_case("gameplay.db-wal")
+            || file_name.eq_ignore_ascii_case("gameplay.db-shm")
+        {
+            path.with_file_name("gameplay.db")
+        } else if file_name.eq_ignore_ascii_case("gameplay.db") {
+            path.to_owned()
+        } else {
+            return Ok(());
+        };
+        return sync_gog_galaxy_game(app, state, location, &database, baseline);
+    }
     let inferred_game_id = source::infer_game_id(path)
         .ok_or_else(|| format!("Could not infer a game ID from {}", path.display()))?;
     let game_id = state
@@ -3306,6 +3329,57 @@ fn process_path(
             .map_err(error)?;
         store
             .record_observations(&observations, baseline)
+            .map_err(error)?
+    };
+    handle_created_events(app, state, &settings, events, location.notify)
+}
+
+fn sync_gog_galaxy_game(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    location: &aw_core::SourceLocation,
+    database: &Path,
+    baseline: bool,
+) -> CommandResult<()> {
+    let catalog = std::env::var_os("PROGRAMDATA")
+        .map(PathBuf::from)
+        .map(|root| root.join("GOG.com/Galaxy/storage/galaxy-2.0.db"));
+    let mut snapshot =
+        aw_core::gog::read_gameplay(database, &location.id, catalog.as_deref()).map_err(error)?;
+    let settings = state
+        .store
+        .lock()
+        .map_err(lock_error)?
+        .load_settings()
+        .map_err(error)?;
+    let events = {
+        let mut store = state.store.lock().map_err(lock_error)?;
+        store
+            .save_game_metadata(&snapshot.game_id, &snapshot.name, None)
+            .map_err(error)?;
+        for (achievement, artwork) in snapshot.achievements.iter().zip(&snapshot.artwork) {
+            store
+                .save_achievement_metadata(
+                    &snapshot.game_id,
+                    &achievement.achievement_id,
+                    achievement.display_name.as_deref(),
+                    achievement.description.as_deref(),
+                    Some(&artwork.locked),
+                    Some(&artwork.unlocked),
+                    achievement.hidden,
+                )
+                .map_err(error)?;
+            if let Some(percent) = achievement.global_percent_hundredths {
+                store
+                    .save_global_percent(&snapshot.game_id, &achievement.achievement_id, percent)
+                    .map_err(error)?;
+            }
+        }
+        store
+            .enrich_observations(&mut snapshot.achievements)
+            .map_err(error)?;
+        store
+            .record_observations(&snapshot.achievements, baseline)
             .map_err(error)?
     };
     handle_created_events(app, state, &settings, events, location.notify)

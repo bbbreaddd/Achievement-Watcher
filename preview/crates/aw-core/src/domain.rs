@@ -162,6 +162,7 @@ pub struct GameLaunchConfig {
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
     Steam,
+    GogGalaxy,
     SteamEmulator,
     GreenLuma,
     Rpcs3,
@@ -264,6 +265,8 @@ pub struct AppSettings {
     pub rpcs3_enabled: bool,
     pub epic_enabled: bool,
     pub gog_enabled: bool,
+    #[serde(default = "default_true")]
+    pub gog_galaxy_enabled: bool,
     pub luma_play_enabled: bool,
     pub watchdog_cache_enabled: bool,
     pub steam_public_fallback: bool,
@@ -345,6 +348,7 @@ impl Default for AppSettings {
             rpcs3_enabled: true,
             epic_enabled: true,
             gog_enabled: true,
+            gog_galaxy_enabled: true,
             luma_play_enabled: false,
             watchdog_cache_enabled: true,
             steam_public_fallback: true,

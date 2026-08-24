@@ -19,7 +19,7 @@
     if (source === 'rpcs3') return playstationIcon;
     if (source === 'steam' || source === 'steam_emulator' || source === 'green_luma') return steamIcon;
     if (source === 'epic') return epicIcon;
-    if (source === 'gog') return gogIcon;
+    if (source === 'gog' || source === 'gog_galaxy') return gogIcon;
     return null;
   }
 

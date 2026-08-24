@@ -992,6 +992,7 @@
         <label class="check"><input type="checkbox" bind:checked={settings.greenLumaEnabled} onchange={save} /> GreenLuma registry saves</label>
         <label class="check"><input type="checkbox" bind:checked={settings.rpcs3Enabled} onchange={save} /> RPCS3 trophies</label>
         <label class="check"><input type="checkbox" bind:checked={settings.epicEnabled} onchange={save} /> Nemirtingas Epic emulator</label>
+        <label class="check"><input type="checkbox" bind:checked={settings.gogGalaxyEnabled} onchange={save} /> GOG Galaxy local achievements</label>
         <label class="check"><input type="checkbox" bind:checked={settings.gogEnabled} onchange={save} /> Nemirtingas Galaxy emulator</label>
         <label class="check"><input type="checkbox" bind:checked={settings.lumaPlayEnabled} onchange={save} /> LumaPlay registry achievements</label>
         <label class="check"><input type="checkbox" bind:checked={settings.watchdogCacheEnabled} onchange={save} /> Original Achievement Watcher cache</label>

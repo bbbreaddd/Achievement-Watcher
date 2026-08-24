@@ -13,6 +13,7 @@ export function completionPercent(game: GameSummary): number {
 export function sourceLabel(source?: string): string {
   switch (source) {
     case 'steam': return 'Steam client';
+    case 'gog_galaxy': return 'GOG Galaxy';
     case 'steam_emulator': return 'Steam emulator save';
     case 'green_luma': return 'GreenLuma save';
     case 'rpcs3': return 'RPCS3 trophy data';
@@ -27,6 +28,7 @@ export function sourceLabel(source?: string): string {
 export function sourceDescription(source?: string): string {
   switch (source) {
     case 'steam': return 'Achievement progress read from the Steam client';
+    case 'gog_galaxy': return 'Achievement progress read from the local GOG Galaxy database';
     case 'steam_emulator': return 'Achievement progress read from a local Steam emulator save file';
     case 'green_luma': return 'Achievement progress read from a local GreenLuma save file';
     case 'rpcs3': return 'Trophy progress read from local RPCS3 data';
