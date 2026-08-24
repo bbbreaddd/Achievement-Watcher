@@ -56,5 +56,8 @@ module.exports = async (message, options) => {
       const debug = require('../../util/log.js');
       debug.log(`Error playing toast sound:  ${e}`);
     });
-  await toast(notification);
+  await Promise.race([
+    toast(notification),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Toast delivery timed out')), 5000)),
+  ]);
 };

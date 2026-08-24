@@ -20,24 +20,6 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history for all branches and tags
 
-      # 2. Cache OBS Studio
-      - name: Cache OBS Studio
-        id: cache-obs
-        uses: actions/cache@v4
-        with:
-          path: obs
-          key: obs-studio-31.0.3-${{ runner.os }}
-
-      # 3. Download OBS if not cached
-      - name: Download OBS if not cached
-        if: steps.cache-obs.outcome != 'cache-hit'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path obs
-          Invoke-WebRequest -Uri https://github.com/obsproject/obs-studio/releases/download/31.0.3/OBS-Studio-31.0.3-Windows.zip -OutFile obs.zip
-          Expand-Archive -Path obs.zip -DestinationPath obs -Force
-          Remove-Item obs.zip
-
       # 4. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4

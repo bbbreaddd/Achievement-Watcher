@@ -1,13 +1,11 @@
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
 const OBSWebSocket = require('obs-websocket-js').OBSWebSocket;
 const obs = new OBSWebSocket();
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const debug = require('./util/log.js');
 
 const obs_path = path.join(process.env.APPDATA, 'obs-studio');
-const crash_file = path.join(obs_path, 'safe_mode');
 const settings_file = path.join(obs_path, 'plugin_config/obs-websocket', 'config.json');
 let config;
 let latestReplay;
@@ -30,7 +28,7 @@ obs.on('ReplayBufferSaved', async () => {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function switchProfileAndSceneCollection() {
-  await startObs();
+  if (!isEnabled || !obs.connected) return false;
   const p = await obs.call('GetProfileList');
   if (p.currentProfileName !== 'AW') await obs.call('SetCurrentProfile', { profileName: 'AW' });
   const s = await obs.call('GetSceneCollectionList');
@@ -38,20 +36,23 @@ async function switchProfileAndSceneCollection() {
 }
 
 function watchObs() {
+  if (!isEnabled) return;
   if (obsCheckInterval !== null) return;
   obsCheckInterval = setInterval(() => {
     if (isRunning()) {
       connectToObs();
       return;
     }
-    startObs();
+    debug.warn('External OBS is not running; video souvenirs remain unavailable');
   }, 30000);
 }
 
 async function connectToObs() {
   const maxRetries = 6;
   let attempt = 0;
-  if (obs.connected) return;
+  if (!isEnabled) return false;
+  if (obs.connected) return true;
+  if (!config) checkSettings();
 
   while (attempt < maxRetries) {
     try {
@@ -67,12 +68,8 @@ async function connectToObs() {
       }
 
       await sleep(5000); // wait a bit after connecting
-      await switchProfileAndSceneCollection();
-      const { outputActive } = await obs.call('GetReplayBufferStatus');
-      if (!outputActive) await obs.call('StartReplayBuffer');
-
       debug.log('Connected to OBS');
-      return; // success! exit the function
+      return true;
     } catch (e) {
       attempt++;
       if (e.code === 'ECONNREFUSED') {
@@ -84,38 +81,23 @@ async function connectToObs() {
       if (attempt < maxRetries) {
         await sleep(5000); // wait before retrying
       } else {
-        debug.error('Failed to connect to OBS after 6 attempts. Restarting OBS');
-        startObs(true);
+        debug.error('Failed to connect to external OBS after 6 attempts');
+        return false;
       }
     }
   }
 }
 
-function deleteCrashFile() {
-  if (fs.existsSync(crash_file)) {
-    fs.unlinkSync(crash_file);
-  }
-}
-
 function checkSettings() {
-  // Read the simpler file
   try {
     config = JSON.parse(fs.readFileSync(settings_file, 'utf-8'));
-    if (config.server_enabled && !config.first_load) return;
-    if (!config.server_enabled) config.server_enabled = true;
-    if (config.first_load) config.first_load = false;
-    fs.writeFileSync(settings_file, JSON.stringify(config, null, 2), 'utf8');
   } catch (err) {
-    console.error('Error reading the JSON file:', err);
+    debug.warn('Using default local OBS WebSocket settings; Achievement Watcher will not modify OBS configuration');
     config = {
-      alerts_enabled: false,
       auth_required: false,
-      first_load: false,
-      server_enabled: true,
-      server_password: '1YaL7BmRn9Ec9lLZ',
+      server_password: '',
       server_port: 4455,
     };
-    fs.writeFileSync(settings_file, JSON.stringify(config, null, 2), 'utf8');
   }
 }
 
@@ -131,7 +113,7 @@ function isRunning() {
 }
 
 async function recordGame(game) {
-  await startObs();
+  if (!(await startObs())) return false;
 
   let window = '' + game.name.replace(/:/g, '') + ':AWwatchdog:' + game.binary; //title:something:exe;
   await obs.call('SetInputSettings', {
@@ -171,34 +153,17 @@ function enableObs(state = true) {
   isEnabled = state;
 }
 
-async function startObs(kill = false) {
-  if (!isEnabled) return;
+async function startObs() {
+  if (!isEnabled) return false;
   checkSettings();
-
-  while (true) {
-    if (isRunning()) {
-      if (!kill) break;
-      try {
-        execSync('taskkill /IM obs64.exe /F');
-      } catch (e) {
-        execSync('wmic process where "name=\'obs64.exe\'" delete');
-      }
-    }
-    deleteCrashFile();
-
-    const obs = spawn(path.join(__dirname, '../nw/nw.exe'), ['-config', 'obs.json'], {
-      cwd: path.join(__dirname, '../nw/'),
-      detached: true,
-      stdio: 'ignore',
-      shell: false,
-    });
-    obs.unref(); // Let it run independently
-    debug.log('Started OBS minimized.');
-    break;
+  if (!isRunning()) {
+    debug.warn('External OBS is not running; video souvenirs are disabled for this session');
+    return false;
   }
-  await sleep(2000);
-  await connectToObs();
+  const connected = await connectToObs();
+  if (!connected) return false;
   watchObs();
+  return true;
 }
 
 async function setRecordPath(dir) {
@@ -210,7 +175,7 @@ async function setRecordPath(dir) {
 
 async function setRecordResolution() {
   if (!isEnabled) return;
-  await startObs();
+  if (!(await startObs())) return;
   try {
     const { windowManager } = require('node-window-manager');
     const displays = windowManager.getMonitors();
@@ -248,7 +213,6 @@ async function setRecordResolution() {
     debug.log('OBS settings initialized');
   } catch (e) {
     debug.warn(e);
-    await obs.call('StartReplayBuffer');
   }
 }
 
@@ -256,7 +220,8 @@ async function setRecordResolution() {
 async function saveReplay() {
   if (!isEnabled) return;
   try {
-    if (!(await obs.call('GetReplayBufferStatus'))) await obs.call('StartReplayBuffer');
+    const { outputActive } = await obs.call('GetReplayBufferStatus');
+    if (!outputActive) await obs.call('StartReplayBuffer');
     await obs.call('SaveReplayBuffer');
   } catch (e) {
     debug.error(e);
@@ -303,9 +268,9 @@ module.exports = {
   setRecordResolution,
   takeScreenshot,
   saveAndMoveReplay: async function (dir) {
+    saveDir = dir;
     await sleep(2000);
     await saveReplay();
-    saveDir = dir;
     //await sleep(10000);
     //await moveLatestReplay(dir);
   },

@@ -49,9 +49,6 @@ extraFiles:
   - from: ../nw
     to: ./nw
 
-  - from: ../obs
-    to: ./obs
-
   - from: ./media
     to: resources/userData/Media
 
@@ -63,14 +60,6 @@ extraFiles:
 
   - from: ./view
     to: resources/userData/view
-
-  - from: ../obs/config/obs-studio/basic/profiles
-    to: resources/userData/obs
-
-  - from: ../obs/config/obs-studio/basic/scenes
-    to: resources/userData/obs
-    filter:
-      - '!**.json.bak'
 
   - from: ../setup/{{app}}
     to: .

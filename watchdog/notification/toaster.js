@@ -19,32 +19,36 @@ const debug = require('../util/log.js');
 let videoIsRecording = false;
 
 module.exports = async (message, option = {}) => {
+  const results = [];
   try {
+    const transport = option.transport || {};
+    const toastOptions = option.toast || {};
+    const souvenir = option.souvenir || {};
     const options = {
       notify: option.notify != null ? option.notify : true,
       transport: {
-        toast: option.transport.toast != null ? option.transport.toast : true,
-        gntp: option.transport.gntp || false,
-        websocket: option.transport.websocket || false,
-        chromium: option.transport.chromium != null ? option.transport.chromium : true,
+        toast: transport.toast != null ? transport.toast : true,
+        gntp: transport.gntp || false,
+        websocket: transport.websocket || false,
+        chromium: transport.chromium != null ? transport.chromium : true,
       },
       toast: {
-        appid: option.toast.appid,
-        winrt: option.toast.winrt != null ? option.toast.winrt : true,
-        balloonFallback: option.toast.balloonFallback || false,
-        customAudio: option.toast.customAudio || '1',
-        imageIntegration: option.toast.imageIntegration || '0',
-        group: option.toast.group || false,
-        cropIcon: option.toast.cropIcon || false,
-        attribution: option.toast.attribution || null,
+        appid: toastOptions.appid,
+        winrt: toastOptions.winrt != null ? toastOptions.winrt : true,
+        balloonFallback: toastOptions.balloonFallback || false,
+        customAudio: toastOptions.customAudio || '1',
+        imageIntegration: toastOptions.imageIntegration || '0',
+        group: toastOptions.group || false,
+        cropIcon: toastOptions.cropIcon || false,
+        attribution: toastOptions.attribution || null,
       },
       gntpLabel: option.gntpLabel,
       prefetch: option.prefetch != null ? option.prefetch : true,
       souvenir: {
-        screenshot: option.souvenir.screenshot || false,
-        video: option.souvenir.video >= 0 && option.souvenir.video <= 2 ? option.souvenir.video : 0,
-        screenshot_options: option.souvenir.screenshot_options || {},
-        video_options: option.souvenir.video_options || {},
+        screenshot: souvenir.screenshot || false,
+        video: souvenir.video >= 0 && souvenir.video <= 2 ? souvenir.video : 0,
+        screenshot_options: souvenir.screenshot_options || {},
+        video_options: souvenir.video_options || {},
       },
       rumble: option.rumble != null ? option.rumble : true,
     };
@@ -66,14 +70,15 @@ module.exports = async (message, option = {}) => {
         if (message.progress) notification.progress = message.progress;
 
         broadcast(notification);
+        results.push({ transport: 'websocket', success: true });
       }
 
       debug.log(`Prefetching...`);
-      if (message.icon) {
+      if (options.prefetch && message.icon) {
         message.icon = await fetch(message.icon, message.appid);
       }
 
-      if (options.transport.toast && options.toast.imageIntegration != '0' && message.image) {
+      if (options.prefetch && options.transport.toast && options.toast.imageIntegration != '0' && message.image) {
         message.image = await fetch(message.image, message.appid);
       }
 
@@ -87,14 +92,17 @@ module.exports = async (message, option = {}) => {
           `--description=${message.achievementDescription}`,
           `--count=${message.progress?.current}/${message.progress?.max}`,
         ]);
+        results.push({ transport: 'chromium', success: true });
       }
 
       if (options.transport.toast) {
         debug.log('Toast notification');
         try {
           await toast(message, options);
+          results.push({ transport: 'toast', success: true });
         } catch (err) {
           debug.error(err);
+          results.push({ transport: 'toast', success: false, error: String(err) });
           if (options.toast.balloonFallback) {
             debug.warn('Fallback to balloon-tooltip');
             try {
@@ -108,8 +116,10 @@ module.exports = async (message, option = {}) => {
                 notification.message = `[ ${message.progress.current}/${message.progress.max} ]\n${message.achievementDescription}`;
 
               await balloon(notification);
+              results.push({ transport: 'balloon', success: true });
             } catch (err) {
               debug.error(err);
+              results.push({ transport: 'balloon', success: false, error: String(err) });
             }
           }
         }
@@ -134,6 +144,7 @@ module.exports = async (message, option = {}) => {
             if (message.progress) notification.message = `[ ${message.progress.current}/${message.progress.max} ]\n${message.achievementDescription}`;
 
             await gntp.send(notification);
+            results.push({ transport: 'gntp', success: true });
           } else {
             debug.error('GNTP endpoint unreachable');
           }
@@ -241,7 +252,10 @@ module.exports = async (message, option = {}) => {
     } else {
       debug.log('Skipping souvenir: video');
     }
+    return results;
   } catch (err) {
-    debug.log(err);
+    debug.error(err);
+    results.push({ transport: 'dispatcher', success: false, error: String(err) });
+    return results;
   }
 };

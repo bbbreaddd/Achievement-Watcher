@@ -35,6 +35,7 @@ const { isWinRTAvailable } = require('powertoast');
 const { isFullscreenAppRunning } = require('./queryUserNotificationState.js');
 const { enableObs, startObs, recordGame, setRecordPath, setRecordResolution } = require('./obsHandler.js');
 const userShellFolder = require('./util/userShellFolder.js');
+const { findGogMapping, findEpicMapping } = require('./lib/idMapping.js');
 let hotkeys; // required later to avoid io conflict
 
 const cfg_file = {
@@ -50,6 +51,19 @@ let runningAppid;
 let overlayOpened = false;
 let overlayHotkey;
 let runningGames = [];
+const processedFiles = new Map();
+
+async function waitForStableFile(file, attempts = 5, delay = 100) {
+  let previous;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const stat = await fs.promises.stat(file);
+    const fingerprint = `${stat.size}:${stat.mtimeMs}`;
+    if (fingerprint === previous) return fingerprint;
+    previous = fingerprint;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  return previous;
+}
 
 function parseOverlayHotkey(hotkey) {
   overlayHotkey = hotkey
@@ -130,15 +144,17 @@ var app = {
       debug.log(self.options);
 
       RegisterOverlayHotkey(self.options.overlay.hotkey);
-      enableObs(self.options.souvenir_video.video != '0');
+      const videoEnabled = self.options.souvenir_video.video != '0';
+      enableObs(videoEnabled);
 
-      try {
-        startObs(true).then(async () => {
+      if (videoEnabled) {
+        startObs()
+          .then(async (connected) => {
+            if (!connected) return;
           await setRecordPath(userShellFolder['myvideo']);
           await setRecordResolution();
-        });
-      } catch (err) {
-        debug.log(err);
+          })
+          .catch((err) => debug.warn(`OBS integration unavailable: ${err}`));
       }
       if (isWinRTAvailable() === true && self.options.notification_transport.winRT === true) debug.log('[Toast] will use WinRT');
       else debug.warn('[Toast] will use PowerShell');
@@ -213,17 +229,14 @@ var app = {
       try {
         if (evt !== 'update') return;
 
-        const currentTime = Date.now();
-        const fileLastModified = fs.statSync(name).mtimeMs || 0;
-        if (currentTime - fileLastModified > 1000) return;
+        const fingerprint = await waitForStableFile(name);
+        if (processedFiles.get(name) === fingerprint) return;
+        processedFiles.set(name, fingerprint);
 
         let filePath = path.parse(name);
         if (!options.file.some((file) => file == filePath.base)) return;
 
         debug.log('achievement file change detected');
-
-        if (moment().diff(moment(self.tick)) <= self.options.notification_advanced.tick) throw 'Spamming protection is enabled > SKIPPING';
-        self.tick = moment().valueOf();
 
         let appID;
         try {
@@ -564,12 +577,12 @@ var app = {
       if (fs.existsSync(cacheFile)) {
         cache = JSON.parse(fs.readFileSync(cacheFile, { encoding: 'utf8' }));
       }
-      let cached = cache.find((g) => g.gogid === game.appid);
-      if (cached) return cached.steamid;
+      const cached = findGogMapping(cache, appID);
+      if (cached) return cached;
       const url = `https://gamesdb.gog.com/platforms/gog/external_releases/${appID}`;
       let gameinfo = await request.getJson(url);
       if (gameinfo) {
-        let steamid = gameinfo.game.releases.find((r) => r.platform_id === 'steam').external_id;
+        let steamid = gameinfo.game?.releases?.find((r) => r.platform_id === 'steam')?.external_id;
         if (steamid) return steamid;
       }
     } catch (err) {
@@ -582,10 +595,10 @@ var app = {
       let cache = [];
 
       if (fs.existsSync(cacheFile)) {
-        cache = JSON.parse(fs.readFileSync(filePath, { encoding: 'utf8' }));
+        cache = JSON.parse(fs.readFileSync(cacheFile, { encoding: 'utf8' }));
       }
-      let cached = cache.find((g) => g.gogid === game.appid);
-      if (cached) return cached.steamid;
+      const cached = findEpicMapping(cache, appID);
+      if (cached) return cached;
     } catch (err) {
       throw err;
     }
@@ -602,7 +615,7 @@ var app = {
     });
 
     try {
-      websocket();
+      websocket({ allowControlCommands: isDev });
     } catch (err) {
       debug.error(err);
     }
