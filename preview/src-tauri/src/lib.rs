@@ -1,5 +1,6 @@
 mod game_bar;
 mod gntp;
+mod jobs;
 mod obs;
 mod process;
 mod registry;
@@ -44,6 +45,7 @@ struct AppState {
     launched_games: Mutex<HashSet<String>>,
     game_bar: game_bar::GameBarBridge,
     websocket: websocket::Bridge,
+    jobs: jobs::JobCoordinator,
     data_dir: PathBuf,
 }
 
@@ -126,6 +128,15 @@ struct DownloadableUpdate {
 }
 
 type CommandResult<T> = Result<T, String>;
+
+fn emit_operation(app: &AppHandle, snapshot: jobs::OperationSnapshot) {
+    let _ = app.emit("operation-status", snapshot);
+}
+
+#[tauri::command]
+fn operation_status(state: State<'_, AppState>) -> jobs::OperationSnapshot {
+    state.jobs.snapshot()
+}
 
 #[tauri::command]
 fn load_settings(state: State<'_, AppState>) -> CommandResult<AppSettings> {
@@ -1646,7 +1657,20 @@ async fn scan_sources(app: AppHandle, establish_baseline: Option<bool>) -> Comma
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<AppState>();
-        scan_sources_sync(handle.clone(), state, establish_baseline)
+        state
+            .jobs
+            .run_scan(establish_baseline.unwrap_or(false), |baseline| {
+                let started = state.jobs.begin(
+                    "scan",
+                    "Scanning configured sources…",
+                    Utc::now().timestamp(),
+                );
+                emit_operation(&handle, started);
+                let result = scan_sources_sync(handle.clone(), state.clone(), Some(baseline));
+                let finished = state.jobs.finish(&result, Utc::now().timestamp());
+                emit_operation(&handle, finished);
+                result
+            })
     })
     .await
     .map_err(error)?
@@ -1781,6 +1805,7 @@ fn scan_sources_sync(
             "scan-progress",
             serde_json::json!({ "completed": registry_count + index + 1, "total": total }),
         );
+        emit_operation(&app, state.jobs.progress(registry_count + index + 1, total));
     }
     configure_watcher(&app, &state, &settings)?;
     dispatch_pending(&app, &state)?;
@@ -2137,7 +2162,19 @@ async fn refresh_metadata(app: AppHandle, game_id: Option<String>) -> CommandRes
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<AppState>();
-        refresh_metadata_sync(handle.clone(), state, game_id)
+        let _library = state.jobs.library_lock()?;
+        let label = if game_id.is_some() {
+            "Refreshing game information…"
+        } else {
+            "Refreshing missing game information…"
+        };
+        emit_operation(
+            &handle,
+            state.jobs.begin("metadata", label, Utc::now().timestamp()),
+        );
+        let result = refresh_metadata_sync(handle.clone(), state.clone(), game_id);
+        emit_operation(&handle, state.jobs.finish(&result, Utc::now().timestamp()));
+        result
     })
     .await
     .map_err(error)?
@@ -4064,6 +4101,7 @@ pub fn run() {
                 launched_games: Mutex::new(HashSet::new()),
                 game_bar: game_bar::GameBarBridge::start(),
                 websocket: websocket::Bridge::default(),
+                jobs: jobs::JobCoordinator::default(),
                 data_dir,
             });
             let startup_settings = app
@@ -4155,6 +4193,7 @@ pub fn run() {
             export_goldberg_achievements,
             open_data_location,
             diagnostics,
+            operation_status,
             retry_failed_notifications,
             dismiss_failed_notifications,
             save_settings,

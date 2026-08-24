@@ -96,6 +96,17 @@ export interface SettingsApplyResult {
   scanRequired: boolean;
 }
 
+export interface OperationSnapshot {
+  kind?: 'scan' | 'metadata';
+  message: string;
+  completed: number;
+  total: number;
+  startedAt?: number;
+  finishedAt?: number;
+  lastSuccessAt?: number;
+  lastError?: string;
+}
+
 export interface GameSummary {
   sourceId: string;
   sourceKind?: SourceKind;

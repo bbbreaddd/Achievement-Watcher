@@ -11,7 +11,7 @@
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
-  import type { AchievementObservation, AppSettings, GameSummary, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
+  import type { AchievementObservation, AppSettings, GameSummary, OperationSnapshot, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
   let settings: AppSettings | null = null;
@@ -21,6 +21,7 @@
   let settingsError = '';
   let initializing = true;
   let scanning = false;
+  let operation: OperationSnapshot | null = null;
   let view: 'library' | 'settings' = 'library';
   let selectedGame: GameSummary | null = null;
   let achievements: AchievementObservation[] = [];
@@ -361,6 +362,15 @@
     } finally {
       scanning = false;
     }
+  }
+
+  function displayedStatus() {
+    if (operation?.kind) {
+      return operation.total > 0
+        ? `${operation.message.replace(/…$/, '')} ${operation.completed} of ${operation.total}`
+        : operation.message;
+    }
+    return operation?.lastError ? `${status} · Last background error: ${operation.lastError}` : status;
   }
 
   async function addSource(kind: SourceKind) {
@@ -705,6 +715,7 @@
       settings = await invoke<AppSettings>('load_settings');
       applyLanguage(settings.language);
       await Promise.all([loadDiagnostics(), loadAvatar()]);
+      operation = await invoke<OperationSnapshot>('operation_status').catch(() => null);
       await refresh();
       initializing = false;
       status = games.length ? 'Refreshing library…' : 'Searching for achievement data…';
@@ -727,23 +738,29 @@
   onMount(() => {
     let disposed = false;
     const cleanup: Array<() => void> = [];
-    void (async () => {
-      cleanup.push(await listen('library-changed', refresh));
-      cleanup.push(await listen<{ transport: string; success: boolean; error?: string }>('notification-status', ({ payload }) => {
+    void initializeApp();
+    void consumeOpenGameRequest();
+    const register = async (event: string, handler: Parameters<typeof listen>[1]) => {
+      try {
+        const unlisten = await listen(event, handler);
+        if (disposed) unlisten();
+        else cleanup.push(unlisten);
+      } catch (error) {
+        status = `Some live updates are unavailable: ${String(error)}`;
+      }
+    };
+    void register('library-changed', () => { void refresh().catch((error) => { status = `Library refresh failed: ${String(error)}`; }); });
+    void register('notification-status', (({ payload }: { payload: { transport: string; success: boolean; error?: string } }) => {
         status = payload.success
           ? `${payload.transport === 'overlay' ? 'Custom popup rendered' : 'Windows notification delivered'}`
           : `Notification failed: ${payload.error ?? 'unknown error'}`;
-      }));
-      cleanup.push(await listen<{ completed: number; total: number }>('scan-progress', ({ payload }) => {
-        status = `Scanning ${payload.completed} of ${payload.total}`;
-      }));
-      cleanup.push(await listen<OpenGameRequest>('open-game', ({ payload }) => {
+      }) as Parameters<typeof listen>[1]);
+    void register('operation-status', (({ payload }: { payload: OperationSnapshot }) => {
+        operation = payload;
+      }) as Parameters<typeof listen>[1]);
+    void register('open-game', (({ payload }: { payload: OpenGameRequest }) => {
         void consumeOpenGameRequest(payload);
-      }));
-      await consumeOpenGameRequest();
-      await initializeApp();
-      if (disposed) cleanup.splice(0).forEach((unlisten) => unlisten());
-    })();
+      }) as Parameters<typeof listen>[1]);
     return () => {
       disposed = true;
       cleanup.splice(0).forEach((unlisten) => unlisten());
@@ -1030,4 +1047,4 @@
     </div>
   </div>
 {/if}
-<StatusBar busy={scanning} message={status} />
+<StatusBar busy={scanning || Boolean(operation?.kind)} message={displayedStatus()} />
