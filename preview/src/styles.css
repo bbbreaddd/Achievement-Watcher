@@ -203,7 +203,7 @@ section { max-width: 1180px; margin: 0 auto; }
 .check input { width: 15px; height: 15px; accent-color: #d59a2e; }
 .token-row code { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aeb9c8; font-family: Consolas, monospace; font-size: 11px; }
 .sources { padding: 6px 14px; }
-.source { min-height: 40px; display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid #2c3d53; }
+.source { min-height: 40px; display: grid; grid-template-columns: minmax(125px, auto) auto minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid #2c3d53; }
 .source:last-child { border-bottom: 0; }
 .source > label { display: flex; align-items: center; gap: 7px; text-transform: capitalize; color: #c5ceda; font-size: 12px; }
 .source input { accent-color: #d59a2e; }
@@ -211,9 +211,11 @@ section { max-width: 1180px; margin: 0 auto; }
 .source button { min-height: 26px; padding: 2px 8px; border-color: transparent; background: transparent; color: #aeb9c8; font-size: 12px; }
 .source button:hover { color: #fff; border-color: #40516a; }
 .source-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px 14px; border-top: 1px solid #34465d; }
-.folder-setting, .diagnostic { min-height: 48px; display: grid; grid-template-columns: 150px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2c3d53; }
+.folder-setting, .diagnostic { min-height: 48px; display: grid; grid-template-columns: 150px minmax(0, 1fr) repeat(3, auto); align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #2c3d53; }
 .folder-setting > span, .diagnostic > span { color: #c5ceda; }
 .folder-setting code, .diagnostic code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8f9cad; font-family: Consolas, monospace; font-size: 11px; }
+.diagnostic.multi { grid-template-columns: 150px minmax(0, 1fr); align-items: start; }
+.diagnostic-values { min-width: 0; display: grid; gap: 6px; }
 .muted { padding: 12px 0; color: #8f9cad; }
 footer { position: fixed; z-index: 400; left: 0; right: 0; bottom: 0; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-top: 1px solid #34465d; background: #111c2b; color: #8f9cad; font-size: 11px; }
 footer > span:first-child { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #6d9a73; }
