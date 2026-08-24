@@ -165,4 +165,5 @@ export interface NotificationPresentationSettings {
 export interface NotificationRenderRequest {
   event: NotificationEvent;
   presentation: NotificationPresentationSettings;
+  presetConfig: { width: number; height: number; durationMs: number };
 }

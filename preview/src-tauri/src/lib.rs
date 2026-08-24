@@ -1,6 +1,7 @@
 mod game_bar;
 mod gntp;
 mod jobs;
+mod notification_preset;
 mod obs;
 mod process;
 mod registry;
@@ -98,6 +99,7 @@ impl From<&AppSettings> for NotificationPresentationSettings {
 struct NotificationRenderRequest {
     event: NotificationEvent,
     presentation: NotificationPresentationSettings,
+    preset_config: notification_preset::NotificationPreset,
 }
 
 #[derive(Debug, Serialize)]
@@ -3009,6 +3011,7 @@ fn current_notification(
     Ok(event
         .zip(presentation)
         .map(|(event, presentation)| NotificationRenderRequest {
+            preset_config: notification_preset::resolve(&presentation.preset),
             event,
             presentation,
         }))
@@ -3831,7 +3834,7 @@ fn show_overlay(
     if app.get_webview_window("notification").is_none() {
         notification_log(state, "creating custom notification renderer");
         let scale = presentation.scale_percent.clamp(50, 150) as f64 / 100.0;
-        let (width, height) = notification_preset_size(&presentation.preset);
+        let preset = notification_preset::resolve(&presentation.preset);
         // Keep the URL marker as a fallback for WebView runtimes that expose
         // the main label briefly while a dynamically-created window starts.
         WebviewWindowBuilder::new(
@@ -3840,7 +3843,10 @@ fn show_overlay(
             WebviewUrl::App("index.html?view=notification".into()),
         )
         .title("Achievement unlocked")
-        .inner_size(width * scale, height * scale)
+        .inner_size(
+            f64::from(preset.width) * scale,
+            f64::from(preset.height) * scale,
+        )
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -3857,6 +3863,7 @@ fn show_overlay(
             "notification",
             "notification-request",
             &NotificationRenderRequest {
+                preset_config: notification_preset::resolve(&presentation.preset),
                 event: event.clone(),
                 presentation: presentation.clone(),
             },
@@ -3908,7 +3915,8 @@ fn show_overlay(
     });
     let close_handle = app.clone();
     let close_id = event.id;
-    let watchdog_timeout = notification_preset_duration(&presentation.preset)
+    let watchdog_timeout = notification_preset::resolve(&presentation.preset)
+        .duration_ms
         .saturating_mul(u64::from(presentation.duration_percent.clamp(10, 500)))
         / 100
         + 4_000;
@@ -3958,30 +3966,6 @@ fn show_overlay(
         });
     });
     Ok(())
-}
-
-fn notification_preset_size(preset: &str) -> (f64, f64) {
-    match preset {
-        "default" | "original" => (420.0, 110.0),
-        "ps4" => (400.0, 200.0),
-        "ps5" => (400.0, 150.0),
-        "ps5_enhanced" => (450.0, 150.0),
-        "xbox_one" => (600.0, 160.0),
-        "xbox_360" => (600.0, 150.0),
-        "raposo" | "smooth_pop" => (400.0, 150.0),
-        "xqjan" => (450.0, 150.0),
-        _ => (382.0, 106.0),
-    }
-}
-
-fn notification_preset_duration(preset: &str) -> u64 {
-    match preset {
-        "default" | "original" | "raposo" => 6_000,
-        "ps4" | "xbox_360" => 5_000,
-        "smooth_pop" => 8_000,
-        "xbox_one" | "xqjan" => 10_000,
-        _ => 4_000,
-    }
 }
 
 fn position_notification(window: &tauri::WebviewWindow, position: &str) {

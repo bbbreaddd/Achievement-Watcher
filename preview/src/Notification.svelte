@@ -18,6 +18,7 @@
   let duration = 4_000;
   let showDescription = true;
   let preset = 'steam';
+  let presetConfig = { width: 382, height: 106, durationMs: 4_000 };
   let sound = 'steam_deck';
   let customSoundPath: string | undefined;
   let scalePercent = 100;
@@ -33,24 +34,6 @@
     if (event?.eventKey.startsWith('playtime')) return 'Playtime tracking';
     if (event?.kind === 'progress') return 'Achievement progress';
     return 'Achievement unlocked';
-  }
-
-  function presetSize() {
-    const sizes: Record<string, [number, number]> = {
-      default: [420, 110], original: [420, 110], ps4: [400, 200], ps5: [400, 150],
-      ps5_enhanced: [450, 150], xbox_one: [600, 160], xbox_360: [600, 150],
-      raposo: [400, 150], smooth_pop: [400, 150], xqjan: [450, 150], steam: [382, 106],
-    };
-    return sizes[preset] ?? sizes.steam;
-  }
-
-  function presetDuration(value = preset) {
-    const durations: Record<string, number> = {
-      default: 6_000, original: 6_000, ps4: 5_000, ps5: 4_000,
-      ps5_enhanced: 4_000, xbox_one: 10_000, xbox_360: 5_000,
-      raposo: 6_000, smooth_pop: 8_000, xqjan: 10_000, steam: 4_000,
-    };
-    return durations[value] ?? 4_000;
   }
 
   function presetDocument() {
@@ -89,10 +72,11 @@
     resolvePresetReady = undefined;
   }
 
-  function applyPresentation(settings: NotificationPresentationSettings) {
+  function applyPresentation(settings: NotificationPresentationSettings, config: NotificationRenderRequest['presetConfig']) {
     showDescription = settings.showDescription;
     preset = settings.preset;
-    duration = Math.round(presetDuration(preset) * settings.durationPercent / 100);
+    presetConfig = config;
+    duration = Math.round(config.durationMs * settings.durationPercent / 100);
     sound = settings.sound;
     customSoundPath = settings.customSoundPath;
     scalePercent = settings.scalePercent;
@@ -100,7 +84,7 @@
 
   async function showEvent(payload: NotificationRenderRequest) {
     window.clearTimeout(closeTimer);
-    applyPresentation(payload.presentation);
+    applyPresentation(payload.presentation, payload.presetConfig);
     event = payload.event;
     presetFailed = false;
     active = true;
@@ -174,7 +158,7 @@
   });
 </script>
 
-<div class="notification-stage" style={`width:${presetSize()[0]}px;height:${presetSize()[1]}px;zoom:${scalePercent / 100}`}>{#if usesOriginalPreset()}<iframe bind:this={presetFrame} class="original-preset-frame" src={presetDocument()} title="Achievement notification" onload={presetLoaded} onerror={presetLoadFailed}></iframe><button class="notification-close preset-close" aria-label="Close notification" onclick={close}>×</button>{:else}<div class:active class:original={preset === 'original' || preset === 'default'} class:ps4={preset === 'ps4'} class:ps5={preset === 'ps5' || preset === 'ps5_enhanced'} class:ps5enhanced={preset === 'ps5_enhanced'} class:xbox={preset === 'xbox_one' || preset === 'xbox_360'} class:xbox360={preset === 'xbox_360'} class:smooth={preset === 'smooth_pop'} class:raposo={preset === 'raposo'} class:xqjan={preset === 'xqjan'} class="notification-shell" role="button" tabindex="0" aria-label="Open achievement" onclick={openGame} onkeydown={(keyboardEvent) => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') void openGame(); }}>
+<div class="notification-stage" style={`width:${presetConfig.width}px;height:${presetConfig.height}px;zoom:${scalePercent / 100}`}>{#if usesOriginalPreset()}<iframe bind:this={presetFrame} class="original-preset-frame" src={presetDocument()} title="Achievement notification" onload={presetLoaded} onerror={presetLoadFailed}></iframe><button class="notification-close preset-close" aria-label="Close notification" onclick={close}>×</button>{:else}<div class:active class:original={preset === 'original' || preset === 'default'} class:ps4={preset === 'ps4'} class:ps5={preset === 'ps5' || preset === 'ps5_enhanced'} class:ps5enhanced={preset === 'ps5_enhanced'} class:xbox={preset === 'xbox_one' || preset === 'xbox_360'} class:xbox360={preset === 'xbox_360'} class:smooth={preset === 'smooth_pop'} class:raposo={preset === 'raposo'} class:xqjan={preset === 'xqjan'} class="notification-shell" role="button" tabindex="0" aria-label="Open achievement" onclick={openGame} onkeydown={(keyboardEvent) => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') void openGame(); }}>
   <button class="notification-close" aria-label="Close notification" onclick={(mouseEvent) => { mouseEvent.stopPropagation(); void close(); }}>×</button>
   <div class="achievement-mark"><span>◆</span>{#if event?.observation.icon}<img src={imageUrl(event.observation.icon)} alt="" onerror={(imageEvent) => imageEvent.currentTarget.remove()} />{/if}</div>
   <div class="notification-copy">
