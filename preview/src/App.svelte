@@ -294,8 +294,9 @@
   async function useDefaultSteamName() {
     const account = activeSteamAccount();
     if (!settings || settings.usernameCustomized !== false || !account?.name || settings.username === account.name) return;
+    const previousName = settings.username;
     settings.username = account.name;
-    await save();
+    if (!(await save())) settings.username = previousName;
   }
 
   async function restoreSteamName() {
@@ -665,9 +666,13 @@
   async function blacklistGame(game: GameSummary) {
     gameMenu = null;
     if (!settings || settings.blacklistedGameIds.includes(game.gameId)) return;
+    const previousIds = settings.blacklistedGameIds;
     settings.blacklistedGameIds = [...settings.blacklistedGameIds, game.gameId];
-    if (selectedGame?.gameId === game.gameId) selectedGame = null;
-    await save();
+    if (!(await save())) {
+      settings.blacklistedGameIds = previousIds;
+      return;
+    }
+    if (selectedGame?.gameId === game.gameId) closeGameDetails();
   }
 
   function configureGame(game: GameSummary) {
@@ -716,10 +721,15 @@
   async function chooseAvatar() {
     const selected = await open({ multiple: false, filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
     if (!selected || !settings) return;
+    const previousPath = settings.profileAvatarPath;
+    const previousData = avatarData;
     try {
       avatarData = await invoke<string>('read_profile_avatar', { path: selected });
       settings.profileAvatarPath = selected;
-      await save();
+      if (!(await save())) {
+        settings.profileAvatarPath = previousPath;
+        avatarData = previousData;
+      }
     } catch (error) { status = `Could not use avatar: ${String(error)}`; }
   }
 
@@ -731,20 +741,30 @@
   async function resetAvatar() {
     avatarMenu = null;
     if (!settings) return;
+    const previousPath = settings.profileAvatarPath;
+    const previousData = avatarData;
     settings.profileAvatarPath = undefined;
     avatarData = '';
-    await save();
+    if (!(await save())) {
+      settings.profileAvatarPath = previousPath;
+      avatarData = previousData;
+    }
   }
 
   async function importSteamAvatar(account: { steamId: string; name: string }) {
     avatarMenu = null;
     if (!settings) return;
     status = `Importing ${account.name || 'Steam'} avatar…`;
+    const previousPath = settings.profileAvatarPath;
+    const previousData = avatarData;
     try {
       const path = await invoke<string>('import_steam_avatar', { steamId: account.steamId });
       settings.profileAvatarPath = path;
       await loadAvatar();
-      await save();
+      if (!(await save())) {
+        settings.profileAvatarPath = previousPath;
+        avatarData = previousData;
+      }
     } catch (error) {
       status = `Steam avatar import failed: ${String(error)}`;
     }
@@ -783,10 +803,16 @@
 
   async function skipUpdate() {
     if (!settings || !availableUpdate) return;
+    const skippedUpdate = availableUpdate;
+    const previousVersion = settings.skippedUpdateVersion;
     settings.skippedUpdateVersion = availableUpdate.version;
-    availableUpdate = null;
-    await persistSettings();
-    status = 'This preview version will be skipped';
+    if (await persistSettings()) {
+      availableUpdate = null;
+      status = 'This preview version will be skipped';
+    } else {
+      settings.skippedUpdateVersion = previousVersion;
+      availableUpdate = skippedUpdate;
+    }
   }
 
   async function installAvailableUpdate() {
@@ -798,10 +824,18 @@
 
   async function saveGameConfig() {
     if (!settings || !gameConfig || !gameConfig.executable) return;
+    const previousConfig = settings.gameLaunchConfigs[gameConfig.game.gameId];
     settings.gameLaunchConfigs = { ...settings.gameLaunchConfigs, [gameConfig.game.gameId]: {
       executable: gameConfig.executable, arguments: gameConfig.arguments,
     } };
-    if (await save()) closeGameConfig();
+    if (await save()) {
+      closeGameConfig();
+    } else {
+      const restored = { ...settings.gameLaunchConfigs };
+      if (previousConfig) restored[gameConfig.game.gameId] = previousConfig;
+      else delete restored[gameConfig.game.gameId];
+      settings.gameLaunchConfigs = restored;
+    }
   }
 
   async function launchGame(game: GameSummary) {
