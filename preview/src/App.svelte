@@ -6,6 +6,7 @@
   import { onMount, tick } from 'svelte';
   import { completionPercent, preferredAchievementSource, sourceDescription, sourceLabel } from './library';
   import { operationMessage } from './operation';
+  import { notificationStatusMessage } from './notification-status';
   import { cloneSettings, notificationPresentation, settingsChanged } from './settings';
   import defaultAvatar from '../../app/resources/img/avatar.png';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
@@ -400,20 +401,20 @@
   }
 
   async function testNotification() {
+    status = 'Sending achievement notification test…';
     try {
       const presentation = settings ? notificationPresentation(settings) : undefined;
       await invoke('test_notification', { presentation });
-      status = 'Test notification sent';
     } catch (error) {
       status = `Notification test failed: ${String(error)}`;
     }
   }
 
   async function testNotificationKind(command: 'test_progress_notification' | 'test_playtime_notification', label: string) {
+    status = `Sending ${label.toLowerCase()} notification test…`;
     try {
       const presentation = settings ? notificationPresentation(settings) : undefined;
       await invoke(command, { presentation });
-      status = `${label} notification test sent`;
     } catch (error) {
       status = `${label} notification test failed: ${String(error)}`;
     }
@@ -832,9 +833,7 @@
     };
     void register('library-changed', () => { void refresh().catch((error) => { status = `Library refresh failed: ${String(error)}`; }); });
     void register('notification-status', (({ payload }: { payload: { transport: string; success: boolean; error?: string } }) => {
-        status = payload.success
-          ? `${payload.transport === 'overlay' ? 'Custom popup rendered' : 'Windows notification delivered'}`
-          : `Notification failed: ${payload.error ?? 'unknown error'}`;
+        status = notificationStatusMessage(payload, settings?.notificationMode ?? 'overlay_with_native_fallback');
       }) as Parameters<typeof listen>[1]);
     void register('operation-status', (({ payload }: { payload: OperationSnapshot }) => {
         operation = payload;
