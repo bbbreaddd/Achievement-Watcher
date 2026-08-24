@@ -626,6 +626,9 @@
         applyLanguage(settings.language);
         await loadAvatar();
         await refresh();
+        // The saved library is ready to browse at this point. Source discovery,
+        // metadata enrichment, and baseline scanning may continue afterward.
+        initializing = false;
         status = games.length ? 'Refreshing library…' : 'Searching for achievement data…';
         await detectSources(false, false);
         steamAccounts = await invoke<typeof steamAccounts>('steam_accounts');
