@@ -1437,7 +1437,7 @@ fn launch_game(app: AppHandle, state: State<'_, AppState>, game_id: String) -> C
         .insert(game_id.clone());
     if settings.notify_on_playtime && settings.notification_enabled {
         let event = playtime_notification(&state, &game_id, false);
-        if let Err(message) = deliver_transient(&app, &state, event) {
+        if let Err(message) = deliver_transient(&app, &state, event, None) {
             notification_log(&state, &format!("Playtime notification skipped: {message}"));
         }
     }
@@ -1462,7 +1462,7 @@ fn launch_game(app: AppHandle, state: State<'_, AppState>, game_id: String) -> C
                 })
             {
                 let event = playtime_notification(&state, &game_id, true);
-                if let Err(message) = deliver_transient(&app, &state, event) {
+                if let Err(message) = deliver_transient(&app, &state, event, None) {
                     notification_log(&state, &format!("Playtime notification skipped: {message}"));
                 }
             }
@@ -2564,7 +2564,7 @@ async fn test_notification(
             .map_err(error)?;
         let presentation = presentation.unwrap_or_else(|| (&settings).into());
         if presentation.mode == NotificationMode::NativeOnly {
-            deliver_native(&app, &state, &sample_notification())
+            deliver_native(&app, &state, &sample_notification(), Some(&presentation))
         } else {
             show_overlay(&app, &state, sample_notification(), presentation)
         }
@@ -2574,20 +2574,26 @@ async fn test_notification(
 }
 
 #[tauri::command]
-async fn test_progress_notification(app: AppHandle) -> CommandResult<()> {
+async fn test_progress_notification(
+    app: AppHandle,
+    presentation: Option<NotificationPresentationSettings>,
+) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        deliver_transient(&app, &state, sample_progress_notification())
+        deliver_transient(&app, &state, sample_progress_notification(), presentation)
     })
     .await
     .map_err(error)?
 }
 
 #[tauri::command]
-async fn test_playtime_notification(app: AppHandle) -> CommandResult<()> {
+async fn test_playtime_notification(
+    app: AppHandle,
+    presentation: Option<NotificationPresentationSettings>,
+) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        deliver_transient(&app, &state, sample_playtime_notification())
+        deliver_transient(&app, &state, sample_playtime_notification(), presentation)
     })
     .await
     .map_err(error)?
@@ -2597,6 +2603,7 @@ fn deliver_transient(
     app: &AppHandle,
     state: &State<'_, AppState>,
     event: NotificationEvent,
+    presentation: Option<NotificationPresentationSettings>,
 ) -> CommandResult<()> {
     if state.current_overlay.lock().map_err(lock_error)?.is_some() {
         return Err("Another custom notification is already visible".into());
@@ -2607,10 +2614,11 @@ fn deliver_transient(
         .map_err(lock_error)?
         .load_settings()
         .map_err(error)?;
-    if settings.notification_mode == NotificationMode::NativeOnly {
-        deliver_native(app, state, &event)
+    let presentation = presentation.unwrap_or_else(|| (&settings).into());
+    if presentation.mode == NotificationMode::NativeOnly {
+        deliver_native(app, state, &event, Some(&presentation))
     } else {
-        show_overlay(app, state, event, (&settings).into())
+        show_overlay(app, state, event, presentation)
     }
 }
 
@@ -3351,7 +3359,7 @@ fn start_steam_monitor(app: AppHandle) {
                     && settings.notification_enabled
                 {
                     let event = playtime_notification(&state, &stopped, true);
-                    if let Err(message) = deliver_transient(&app, &state, event) {
+                    if let Err(message) = deliver_transient(&app, &state, event, None) {
                         notification_log(
                             &state,
                             &format!("Playtime notification skipped: {message}"),
@@ -3363,7 +3371,7 @@ fn start_steam_monitor(app: AppHandle) {
                     && settings.notification_enabled
                 {
                     let event = playtime_notification(&state, started, false);
-                    if let Err(message) = deliver_transient(&app, &state, event) {
+                    if let Err(message) = deliver_transient(&app, &state, event, None) {
                         notification_log(
                             &state,
                             &format!("Playtime notification skipped: {message}"),
@@ -3464,7 +3472,7 @@ fn start_process_monitor(app: AppHandle) {
                         }
                     } else if settings.notify_on_playtime && settings.notification_enabled {
                         let event = playtime_notification(&state, game_id, false);
-                        if let Err(message) = deliver_transient(&app, &state, event) {
+                        if let Err(message) = deliver_transient(&app, &state, event, None) {
                             notification_log(
                                 &state,
                                 &format!("Playtime notification skipped: {message}"),
@@ -3477,7 +3485,7 @@ fn start_process_monitor(app: AppHandle) {
                         && settings.notification_enabled
                     {
                         let event = playtime_notification(&state, game_id, true);
-                        if let Err(message) = deliver_transient(&app, &state, event) {
+                        if let Err(message) = deliver_transient(&app, &state, event, None) {
                             notification_log(
                                 &state,
                                 &format!("Playtime notification skipped: {message}"),
@@ -3594,7 +3602,7 @@ fn dispatch_pending(app: &AppHandle, state: &State<'_, AppState>) -> CommandResu
             }
         }
         match settings.notification_mode {
-            NotificationMode::NativeOnly => deliver_native(app, state, &event)?,
+            NotificationMode::NativeOnly => deliver_native(app, state, &event, None)?,
             NotificationMode::OverlayOnly | NotificationMode::OverlayWithNativeFallback => {
                 if state.current_overlay.lock().map_err(lock_error)?.is_some() {
                     break;
@@ -3724,7 +3732,7 @@ fn show_overlay(
                 && settings.notification_mode == NotificationMode::OverlayWithNativeFallback
             {
                 notification_log(&state, "attempting Windows notification fallback");
-                let _ = deliver_native(&handle, &state, &event_for_timeout);
+                let _ = deliver_native(&handle, &state, &event_for_timeout, None);
             } else if event_for_timeout.id >= 0 {
                 let _ = state.store.lock().map(|store| {
                     store.record_delivery(event_for_timeout.id, "overlay", Err("render timeout"))
@@ -3783,7 +3791,7 @@ fn show_overlay(
                     && settings.notification_mode == NotificationMode::OverlayWithNativeFallback
                 {
                     notification_log(&state, "watchdog attempting Windows notification fallback");
-                    let _ = deliver_native(&app_for_close, &state, &event);
+                    let _ = deliver_native(&app_for_close, &state, &event, None);
                 } else if event.id >= 0 {
                     let _ = state.store.lock().map(|store| {
                         store.record_delivery(event.id, "overlay", Err("window watchdog timeout"))
@@ -3891,6 +3899,7 @@ fn deliver_native(
     app: &AppHandle,
     state: &State<'_, AppState>,
     event: &NotificationEvent,
+    presentation: Option<&NotificationPresentationSettings>,
 ) -> CommandResult<()> {
     notification_log(state, &format!("sending native event {}", event.id));
     let title = event
@@ -3911,7 +3920,10 @@ fn deliver_native(
     } else {
         "Achievement unlocked"
     };
-    let body = if settings.notification_show_description {
+    let show_description = presentation
+        .map(|presentation| presentation.show_description)
+        .unwrap_or(settings.notification_show_description);
+    let body = if show_description {
         event.observation.description.as_deref().unwrap_or(fallback)
     } else {
         fallback
