@@ -1,6 +1,6 @@
 <script lang="ts">
   interface Props {
-    scanning: boolean;
+    activity: string | null;
     settingsActive: boolean;
     maximized: boolean;
     onMinimize: () => void;
@@ -9,13 +9,13 @@
     onClose: () => void;
   }
 
-  let { scanning, settingsActive, maximized, onMinimize, onSettings, onMaximize, onClose }: Props = $props();
+  let { activity, settingsActive, maximized, onMinimize, onSettings, onMaximize, onClose }: Props = $props();
 </script>
 
 <header class="title-bar" data-tauri-drag-region>
   <div class="watcher-state">
-    <span class:busy={scanning}></span>
-    <span>{scanning ? 'Scanning achievements…' : 'Achievement Watcher is running'}</span>
+    <span class:busy={Boolean(activity)}></span>
+    <span>{activity ?? 'Achievement Watcher is running'}</span>
   </div>
   <div class="title-actions">
     <button class="settings" aria-label="Settings" title="Settings" class:active={settingsActive} disabled={settingsActive} onclick={onSettings}><i class="fas fa-cog"></i></button>

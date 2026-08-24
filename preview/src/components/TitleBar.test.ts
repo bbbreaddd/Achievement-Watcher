@@ -10,7 +10,7 @@ describe('TitleBar', () => {
     const component = mount(TitleBar, {
       target,
       props: {
-        scanning: false,
+        activity: null,
         settingsActive: false,
         maximized: true,
         onMinimize: vi.fn(),
