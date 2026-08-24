@@ -149,6 +149,10 @@ section { max-width: 1180px; margin: 0 auto; }
 .achievement-progress span { position: absolute; inset: 0; color: #dedede; font: 10px OpenSans, sans-serif; text-align: center; line-height: 14px; }
 .hidden-disclaimer { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 10px; padding: 10px 20px; background: #15202db5; color: #9cabb9; }
 .hidden-disclaimer button { color: #67c1f5; background: #67c1f533; }
+.blacklisted-games { max-height: 180px; overflow-y: auto; border-top: 1px solid #31465a; }
+.blacklisted-games > div { min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #31465a; }
+.blacklisted-games span, .blacklisted-games small { display: block; }
+.blacklisted-games small { margin-top: 2px; color: #7f91a3; }
 .achievement-notice { min-height: 76px; display: flex !important; align-items: center; justify-content: center; gap: 10px; color: #91a0af; text-align: center; }
 .achievement-notice > i { font-size: 22px; }
 .achievement-notice > strong { color: #d9dfe4; }

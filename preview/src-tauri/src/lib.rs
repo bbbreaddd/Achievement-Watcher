@@ -68,6 +68,13 @@ struct UpdateInfo {
     installer_name: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BlacklistedGame {
+    game_id: String,
+    name: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NotificationPresentationSettings {
@@ -1163,6 +1170,27 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
     }
     result.sort_by_key(|game| game.name.to_lowercase());
     Ok(result)
+}
+
+#[tauri::command]
+fn list_blacklisted_games(state: State<'_, AppState>) -> CommandResult<Vec<BlacklistedGame>> {
+    let store = state.store.lock().map_err(lock_error)?;
+    let settings = store.load_settings().map_err(error)?;
+    let mut games = settings
+        .blacklisted_game_ids
+        .into_iter()
+        .map(|game_id| {
+            let name = store
+                .game_metadata(&game_id)
+                .ok()
+                .flatten()
+                .map(|(name, _)| name)
+                .unwrap_or_else(|| game_id.clone());
+            BlacklistedGame { game_id, name }
+        })
+        .collect::<Vec<_>>();
+    games.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    Ok(games)
 }
 
 fn source_priority(kind: aw_core::SourceKind) -> u8 {
@@ -4679,6 +4707,7 @@ pub fn run() {
             save_settings,
             import_legacy,
             list_games,
+            list_blacklisted_games,
             detect_sources,
             steam_accounts,
             current_overlay_game_id,

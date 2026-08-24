@@ -53,6 +53,7 @@
   let diagnosticData: { appVersion: string; observationCount: number; gameCount: number; enabledSourceCount: number; missingSourceCount: number; pendingNotifications: number; failedNotifications: number; recentErrors: string[]; notificationLog: string; watchers: Array<{ name: string; enabled: boolean; lastHeartbeatAt: number; lastWorkAt?: number; lastSuccessAt?: number; lastError?: string }> } | null = null;
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
+  let blacklistedGames: Array<{ gameId: string; name: string }> = [];
   let savingSettings = false;
   let maximized = false;
   let gameMenuElement: HTMLElement;
@@ -557,7 +558,7 @@
     return settingsChanged(settings, settingsSnapshot);
   }
 
-  function openSettings() {
+  async function openSettings() {
     if (!settings) {
       status = 'Settings are unavailable because startup did not finish';
       return;
@@ -566,6 +567,15 @@
     settingsError = '';
     settingsTab = 'general';
     view = 'settings';
+    blacklistedGames = await invoke<typeof blacklistedGames>('list_blacklisted_games').catch(() =>
+      settings?.blacklistedGameIds.map((gameId) => ({ gameId, name: gameId })) ?? []);
+  }
+
+  function restoreBlacklistedGame(gameId: string) {
+    if (!settings) return;
+    settings.blacklistedGameIds = settings.blacklistedGameIds.filter((id) => id !== gameId);
+    blacklistedGames = blacklistedGames.filter((game) => game.gameId !== gameId);
+    status = 'Game restored. Save settings to return it to the library.';
   }
 
   async function acceptSettings() {
@@ -1069,7 +1079,8 @@
       </div>
       <div class="settings-group">
         <h3>Hidden games</h3>
-        <div class="field"><span>{settings.blacklistedGameIds.length} hidden game{settings.blacklistedGameIds.length === 1 ? '' : 's'}</span><button disabled={settings.blacklistedGameIds.length === 0} onclick={() => requestConfirmation('Clear the blacklist?', 'Every hidden game will become eligible to appear in the library again after you save.', 'Clear blacklist', () => { if (settings) { settings.blacklistedGameIds = []; void save(); } })}>Clear blacklist</button></div>
+        {#if blacklistedGames.length > 0}<div class="blacklisted-games">{#each blacklistedGames as game}<div><span><strong>{game.name}</strong>{#if game.name !== game.gameId}<small>{game.gameId}</small>{/if}</span><button onclick={() => restoreBlacklistedGame(game.gameId)}>Restore</button></div>{/each}</div>{:else}<p class="muted">No games are hidden.</p>{/if}
+        <div class="field"><span>{settings.blacklistedGameIds.length} hidden game{settings.blacklistedGameIds.length === 1 ? '' : 's'}</span><button disabled={settings.blacklistedGameIds.length === 0} onclick={() => requestConfirmation('Restore every hidden game?', 'Every hidden game will become eligible to appear in the library again after you save.', 'Restore all', () => { if (settings) { settings.blacklistedGameIds = []; blacklistedGames = []; } })}>Restore all</button></div>
       </div>
       <div class="settings-group">
         <h3>Updates</h3>
