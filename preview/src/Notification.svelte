@@ -2,7 +2,7 @@
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
-  import type { AppSettings, NotificationEvent } from './types';
+  import type { NotificationEvent, NotificationPresentationSettings, NotificationRenderRequest } from './types';
   import steamSound from '../../app/media/Steam Deck.wav';
   import windowsSound from '../../app/media/Windows 10.wav';
   import windows11Sound from '../../app/media/Windows 11.wav';
@@ -89,20 +89,19 @@
     resolvePresetReady = undefined;
   }
 
-  async function loadNotificationSettings() {
-    const settings = await invoke<AppSettings>('load_settings');
-    showDescription = settings.notificationShowDescription;
-    preset = settings.notificationPreset;
-    duration = Math.round(presetDuration(preset) * settings.notificationDurationPercent / 100);
-    sound = settings.notificationSound;
-    customSoundPath = settings.notificationCustomSoundPath;
-    scalePercent = settings.notificationScalePercent;
+  function applyPresentation(settings: NotificationPresentationSettings) {
+    showDescription = settings.showDescription;
+    preset = settings.preset;
+    duration = Math.round(presetDuration(preset) * settings.durationPercent / 100);
+    sound = settings.sound;
+    customSoundPath = settings.customSoundPath;
+    scalePercent = settings.scalePercent;
   }
 
-  async function showEvent(payload: NotificationEvent) {
+  async function showEvent(payload: NotificationRenderRequest) {
     window.clearTimeout(closeTimer);
-    await loadNotificationSettings().catch(() => undefined);
-    event = payload;
+    applyPresentation(payload.presentation);
+    event = payload.event;
     presetFailed = false;
     active = true;
     const sounds: Record<string, string> = { steam_deck: steamSound, windows: windowsSound, windows_11: windows11Sound, playstation: playstationSound, playstation_5: playstation5Sound, playstation_platinum: playstationPlatinumSound, gog: gogSound, android: androidSound };
@@ -125,7 +124,7 @@
         await new Promise(requestAnimationFrame);
       }
     }
-    await invoke('acknowledge_notification', { eventId: payload.id });
+    await invoke('acknowledge_notification', { eventId: payload.event.id });
     closeTimer = window.setTimeout(async () => {
       active = false;
       await new Promise((resolve) => window.setTimeout(resolve, 250));
@@ -152,16 +151,11 @@
     let unlisten: (() => void) | undefined;
     void (async () => {
       try {
-        unlisten = await listen<NotificationEvent>('notification-request', ({ payload }) => {
+        unlisten = await listen<NotificationRenderRequest>('notification-request', ({ payload }) => {
           void showEvent(payload).catch(reportError);
         });
         if (disposed) return unlisten();
-        try {
-          await loadNotificationSettings();
-        } catch {
-          duration = 4_000;
-        }
-        const pending = await invoke<NotificationEvent | null>('current_notification');
+        const pending = await invoke<NotificationRenderRequest | null>('current_notification');
         if (pending && !disposed) await showEvent(pending);
       } catch (error) {
         await reportError(error);

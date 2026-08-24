@@ -38,6 +38,7 @@ struct AppState {
     watcher: Mutex<Option<RecommendedWatcher>>,
     awaiting_overlay: Mutex<HashSet<i64>>,
     current_overlay: Mutex<Option<NotificationEvent>>,
+    current_overlay_presentation: Mutex<Option<NotificationPresentationSettings>>,
     notification_dispatch: Mutex<()>,
     pending_open_game: Mutex<Option<OpenGameRequest>>,
     launched_games: Mutex<HashSet<String>>,
@@ -60,6 +61,48 @@ struct UpdateInfo {
     version: String,
     release_url: String,
     installer_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationPresentationSettings {
+    mode: NotificationMode,
+    show_description: bool,
+    preset: String,
+    sound: String,
+    custom_sound_path: Option<PathBuf>,
+    duration_percent: u16,
+    scale_percent: u16,
+    position: String,
+}
+
+impl From<&AppSettings> for NotificationPresentationSettings {
+    fn from(settings: &AppSettings) -> Self {
+        Self {
+            mode: settings.notification_mode,
+            show_description: settings.notification_show_description,
+            preset: settings.notification_preset.clone(),
+            sound: settings.notification_sound.clone(),
+            custom_sound_path: settings.notification_custom_sound_path.clone(),
+            duration_percent: settings.notification_duration_percent,
+            scale_percent: settings.notification_scale_percent,
+            position: settings.notification_position.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationRenderRequest {
+    event: NotificationEvent,
+    presentation: NotificationPresentationSettings,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsApplyResult {
+    library_changed: bool,
+    scan_required: bool,
 }
 
 #[derive(Deserialize)]
@@ -285,13 +328,19 @@ fn latest_preview_update() -> CommandResult<Option<DownloadableUpdate>> {
 }
 
 #[tauri::command]
-async fn check_for_updates(app: AppHandle, manual: Option<bool>) -> CommandResult<Option<UpdateInfo>> {
+async fn check_for_updates(
+    app: AppHandle,
+    manual: Option<bool>,
+) -> CommandResult<Option<UpdateInfo>> {
     tauri::async_runtime::spawn_blocking(move || check_for_updates_sync(&app, manual))
         .await
         .map_err(error)?
 }
 
-fn check_for_updates_sync(app: &AppHandle, manual: Option<bool>) -> CommandResult<Option<UpdateInfo>> {
+fn check_for_updates_sync(
+    app: &AppHandle,
+    manual: Option<bool>,
+) -> CommandResult<Option<UpdateInfo>> {
     let state = app.state::<AppState>();
     let settings = state
         .store
@@ -664,7 +713,10 @@ fn dismiss_failed_notifications(state: State<'_, AppState>) -> CommandResult<usi
 }
 
 #[tauri::command]
-async fn save_settings(app: AppHandle, settings: AppSettings) -> CommandResult<()> {
+async fn save_settings(
+    app: AppHandle,
+    settings: AppSettings,
+) -> CommandResult<SettingsApplyResult> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         save_settings_sync(&app, &state, settings)
@@ -677,25 +729,72 @@ fn save_settings_sync(
     app: &AppHandle,
     state: &State<'_, AppState>,
     settings: AppSettings,
-) -> CommandResult<()> {
-    configure_overlay_shortcut(app, &settings)?;
-    if !cfg!(dev) {
-        registry::configure_startup(settings.run_at_login)?;
-    }
-    state.websocket.configure(
-        settings.websocket_enabled,
-        &settings.websocket_host,
-        settings.websocket_port,
-    )?;
-    state
+) -> CommandResult<SettingsApplyResult> {
+    let previous = state
         .store
         .lock()
         .map_err(lock_error)?
-        .save_settings(&settings)
+        .load_settings()
         .map_err(error)?;
-    configure_watcher(app, state, &settings)?;
+
+    let scan_required = previous.source_locations != settings.source_locations
+        || previous.steam_enabled != settings.steam_enabled
+        || previous.steam_library_mode != settings.steam_library_mode
+        || previous.steam_account_id != settings.steam_account_id
+        || previous.steam_emulator_enabled != settings.steam_emulator_enabled
+        || previous.green_luma_enabled != settings.green_luma_enabled
+        || previous.rpcs3_enabled != settings.rpcs3_enabled
+        || previous.epic_enabled != settings.epic_enabled
+        || previous.gog_enabled != settings.gog_enabled
+        || previous.luma_play_enabled != settings.luma_play_enabled
+        || previous.watchdog_cache_enabled != settings.watchdog_cache_enabled;
+
+    let apply = || -> CommandResult<()> {
+        configure_overlay_shortcut(app, &settings)?;
+        if !cfg!(dev) {
+            registry::configure_startup(settings.run_at_login)?;
+        }
+        state.websocket.configure(
+            settings.websocket_enabled,
+            &settings.websocket_host,
+            settings.websocket_port,
+        )?;
+        state
+            .store
+            .lock()
+            .map_err(lock_error)?
+            .save_settings(&settings)
+            .map_err(error)?;
+        configure_watcher(app, state, &settings)
+    };
+
+    if let Err(message) = apply() {
+        // Applying settings touches several independent Windows services. Put
+        // every one back on the previous configuration before reporting the
+        // failure so Save never leaves a half-applied runtime behind.
+        let _ = state
+            .store
+            .lock()
+            .map_err(lock_error)
+            .and_then(|store| store.save_settings(&previous).map_err(error));
+        let _ = configure_overlay_shortcut(app, &previous);
+        if !cfg!(dev) {
+            let _ = registry::configure_startup(previous.run_at_login);
+        }
+        let _ = state.websocket.configure(
+            previous.websocket_enabled,
+            &previous.websocket_host,
+            previous.websocket_port,
+        );
+        let _ = configure_watcher(app, state, &previous);
+        return Err(message);
+    }
+
     let _ = app.emit("library-changed", ());
-    Ok(())
+    Ok(SettingsApplyResult {
+        library_changed: previous != settings,
+        scan_required,
+    })
 }
 
 #[tauri::command]
@@ -809,7 +908,10 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
         }
     }
     for game in games.values_mut() {
-        let catalog_total = store.catalog_achievements(&game.game_id).map_err(error)?.len() as u32;
+        let catalog_total = store
+            .catalog_achievements(&game.game_id)
+            .map_err(error)?
+            .len() as u32;
         game.total = game.total.max(catalog_total);
         if let Some((name, icon)) = store.game_metadata(&game.game_id).map_err(error)? {
             game.name = name;
@@ -2448,7 +2550,10 @@ fn import_community_schema_as(
 }
 
 #[tauri::command]
-async fn test_notification(app: AppHandle) -> CommandResult<()> {
+async fn test_notification(
+    app: AppHandle,
+    presentation: Option<NotificationPresentationSettings>,
+) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let settings = state
@@ -2457,10 +2562,11 @@ async fn test_notification(app: AppHandle) -> CommandResult<()> {
             .map_err(lock_error)?
             .load_settings()
             .map_err(error)?;
-        if settings.notification_mode == NotificationMode::NativeOnly {
+        let presentation = presentation.unwrap_or_else(|| (&settings).into());
+        if presentation.mode == NotificationMode::NativeOnly {
             deliver_native(&app, &state, &sample_notification())
         } else {
-            show_overlay(&app, &state, sample_notification())
+            show_overlay(&app, &state, sample_notification(), presentation)
         }
     })
     .await
@@ -2504,7 +2610,7 @@ fn deliver_transient(
     if settings.notification_mode == NotificationMode::NativeOnly {
         deliver_native(app, state, &event)
     } else {
-        show_overlay(app, state, event)
+        show_overlay(app, state, event, (&settings).into())
     }
 }
 
@@ -2696,11 +2802,10 @@ fn acknowledge_notification_sync(
         .get_webview_window("notification")
         .ok_or_else(|| "Notification renderer closed before acknowledgement".to_string())?;
     let position = state
-        .store
+        .current_overlay_presentation
         .lock()
         .ok()
-        .and_then(|store| store.load_settings().ok())
-        .map(|settings| settings.notification_position)
+        .and_then(|settings| settings.as_ref().map(|settings| settings.position.clone()))
         .unwrap_or_else(|| "bottom_right".into());
     position_notification(&window, &position);
     window.show().map_err(error)?;
@@ -2728,8 +2833,21 @@ fn acknowledge_notification_sync(
 }
 
 #[tauri::command]
-fn current_notification(state: State<'_, AppState>) -> CommandResult<Option<NotificationEvent>> {
-    Ok(state.current_overlay.lock().map_err(lock_error)?.clone())
+fn current_notification(
+    state: State<'_, AppState>,
+) -> CommandResult<Option<NotificationRenderRequest>> {
+    let event = state.current_overlay.lock().map_err(lock_error)?.clone();
+    let presentation = state
+        .current_overlay_presentation
+        .lock()
+        .map_err(lock_error)?
+        .clone();
+    Ok(event
+        .zip(presentation)
+        .map(|(event, presentation)| NotificationRenderRequest {
+            event,
+            presentation,
+        }))
 }
 
 #[tauri::command]
@@ -2745,6 +2863,10 @@ async fn close_notification(app: AppHandle) -> CommandResult<()> {
 fn close_notification_sync(app: &AppHandle, state: &State<'_, AppState>) -> CommandResult<()> {
     notification_log(state, "renderer requested close");
     *state.current_overlay.lock().map_err(lock_error)? = None;
+    *state
+        .current_overlay_presentation
+        .lock()
+        .map_err(lock_error)? = None;
     if let Some(window) = app.get_webview_window("notification") {
         window.destroy().map_err(error)?;
     }
@@ -2761,10 +2883,7 @@ async fn open_notification_game(app: AppHandle) -> CommandResult<()> {
     .map_err(error)?
 }
 
-fn open_notification_game_sync(
-    app: &AppHandle,
-    state: &State<'_, AppState>,
-) -> CommandResult<()> {
+fn open_notification_game_sync(app: &AppHandle, state: &State<'_, AppState>) -> CommandResult<()> {
     let event = state
         .current_overlay
         .lock()
@@ -3480,7 +3599,7 @@ fn dispatch_pending(app: &AppHandle, state: &State<'_, AppState>) -> CommandResu
                 if state.current_overlay.lock().map_err(lock_error)?.is_some() {
                     break;
                 }
-                show_overlay(app, state, event)?;
+                show_overlay(app, state, event, (&settings).into())?;
                 break;
             }
         }
@@ -3529,6 +3648,7 @@ fn show_overlay(
     app: &AppHandle,
     state: &State<'_, AppState>,
     event: NotificationEvent,
+    presentation: NotificationPresentationSettings,
 ) -> CommandResult<()> {
     notification_log(
         state,
@@ -3540,16 +3660,14 @@ fn show_overlay(
         .map_err(lock_error)?
         .insert(event.id);
     *state.current_overlay.lock().map_err(lock_error)? = Some(event.clone());
+    *state
+        .current_overlay_presentation
+        .lock()
+        .map_err(lock_error)? = Some(presentation.clone());
     if app.get_webview_window("notification").is_none() {
         notification_log(state, "creating custom notification renderer");
-        let settings = state
-            .store
-            .lock()
-            .ok()
-            .and_then(|store| store.load_settings().ok())
-            .unwrap_or_default();
-        let scale = settings.notification_scale_percent.clamp(50, 150) as f64 / 100.0;
-        let (width, height) = notification_preset_size(&settings.notification_preset);
+        let scale = presentation.scale_percent.clamp(50, 150) as f64 / 100.0;
+        let (width, height) = notification_preset_size(&presentation.preset);
         // Keep the URL marker as a fallback for WebView runtimes that expose
         // the main label briefly while a dynamically-created window starts.
         WebviewWindowBuilder::new(
@@ -3557,25 +3675,32 @@ fn show_overlay(
             "notification",
             WebviewUrl::App("index.html?view=notification".into()),
         )
-            .title("Achievement unlocked")
-            .inner_size(width * scale, height * scale)
-            .decorations(false)
-            .transparent(true)
-            .shadow(false)
-            .always_on_top(true)
-            .focused(false)
-            .visible(false)
-            .skip_taskbar(true)
-            .resizable(false)
-            .build()
-            .map_err(error)?;
+        .title("Achievement unlocked")
+        .inner_size(width * scale, height * scale)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .always_on_top(true)
+        .focused(false)
+        .visible(false)
+        .skip_taskbar(true)
+        .resizable(false)
+        .build()
+        .map_err(error)?;
     } else {
         notification_log(state, "sending event to custom renderer");
-        app.emit_to("notification", "notification-request", &event)
-            .map_err(|emit_error| {
-                notification_log(state, &format!("render event failed: {emit_error}"));
-                error(emit_error)
-            })?;
+        app.emit_to(
+            "notification",
+            "notification-request",
+            &NotificationRenderRequest {
+                event: event.clone(),
+                presentation: presentation.clone(),
+            },
+        )
+        .map_err(|emit_error| {
+            notification_log(state, &format!("render event failed: {emit_error}"));
+            error(emit_error)
+        })?;
     }
     let handle = app.clone();
     let event_for_timeout = event.clone();
@@ -3608,6 +3733,9 @@ fn show_overlay(
             if let Ok(mut current) = state.current_overlay.lock() {
                 *current = None;
             }
+            if let Ok(mut current) = state.current_overlay_presentation.lock() {
+                *current = None;
+            }
             if let Some(window) = handle.get_webview_window("notification") {
                 let _ = window.destroy();
             }
@@ -3616,18 +3744,10 @@ fn show_overlay(
     });
     let close_handle = app.clone();
     let close_id = event.id;
-    let watchdog_timeout = state
-        .store
-        .lock()
-        .ok()
-        .and_then(|store| store.load_settings().ok())
-        .map(|settings| {
-            notification_preset_duration(&settings.notification_preset).saturating_mul(u64::from(
-                settings.notification_duration_percent.clamp(10, 500),
-            )) / 100
-                + 4_000
-        })
-        .unwrap_or(12_000);
+    let watchdog_timeout = notification_preset_duration(&presentation.preset)
+        .saturating_mul(u64::from(presentation.duration_percent.clamp(10, 500)))
+        / 100
+        + 4_000;
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(watchdog_timeout));
         let app_for_close = close_handle.clone();
@@ -3645,6 +3765,9 @@ fn show_overlay(
                     waiting.remove(&close_id);
                 }
                 if let Ok(mut current) = state.current_overlay.lock() {
+                    *current = None;
+                }
+                if let Ok(mut current) = state.current_overlay_presentation.lock() {
                     *current = None;
                 }
                 if let Some(window) = app_for_close.get_webview_window("notification") {
@@ -3898,8 +4021,7 @@ pub fn run() {
                         let handle = app.clone();
                         std::thread::spawn(move || {
                             let state = handle.state::<AppState>();
-                            if let Err(message) =
-                                toggle_achievement_overlay_inner(&handle, &state)
+                            if let Err(message) = toggle_achievement_overlay_inner(&handle, &state)
                             {
                                 notification_log(
                                     &state,
@@ -3924,6 +4046,7 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 awaiting_overlay: Mutex::new(HashSet::new()),
                 current_overlay: Mutex::new(None),
+                current_overlay_presentation: Mutex::new(None),
                 notification_dispatch: Mutex::new(()),
                 pending_open_game: Mutex::new(None),
                 launched_games: Mutex::new(HashSet::new()),
