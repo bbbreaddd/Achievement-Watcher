@@ -35,7 +35,7 @@
   let librarySort: 'name' | 'progress' | 'recent' = 'name';
   let settingsTab: 'general' | 'notification' | 'souvenir' | 'folder' | 'source' | 'advanced' | 'debug' = 'general';
   type SourceChoice = { sourceId: string; sourceKind?: SourceKind; sourcePath?: string };
-  let gameMenu: { game: GameSummary; x: number; y: number; sources?: Array<SourceChoice & { available: boolean }>; sourceError?: string } | null = null;
+  let gameMenu: { game: GameSummary; x: number; y: number; sources?: SourceChoice[]; sourceError?: string } | null = null;
   let avatarMenu: { x: number; y: number } | null = null;
   let achievementSort: 'name' | 'time' | 'progress' | 'rarity' = 'rarity';
   let achievementQuery = '';
@@ -170,13 +170,9 @@
     gameMenu = { ...gameMenu, ...fitMenuPosition(gameMenuElement, event.clientX, event.clientY) };
     gameMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     try {
-      const choices = await invoke<SourceChoice[]>('game_sources', { gameId: game.gameId });
-      const sources = await Promise.all(choices.filter((choice) => choice.sourceId !== 'merged').map(async (choice) => ({
-        ...choice,
-        available: await invoke<boolean>('achievement_source_available', { sourceId: choice.sourceId, gameId: game.gameId }),
-      })));
+      const sources = await invoke<SourceChoice[]>('openable_game_sources', { gameId: game.gameId });
       if (gameMenu?.game.sourceId === game.sourceId && gameMenu.game.gameId === game.gameId) {
-        gameMenu.sources = sources.filter((source) => source.available);
+        gameMenu.sources = sources;
       }
     } catch (error) {
       if (gameMenu?.game.sourceId === game.sourceId && gameMenu.game.gameId === game.gameId) {

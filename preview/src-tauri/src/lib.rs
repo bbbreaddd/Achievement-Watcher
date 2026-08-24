@@ -661,14 +661,21 @@ async fn open_achievement_source(
 }
 
 #[tauri::command]
-async fn achievement_source_available(
+async fn openable_game_sources(
     app: AppHandle,
-    source_id: String,
     game_id: String,
-) -> CommandResult<bool> {
+) -> CommandResult<Vec<GameSourceChoice>> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        Ok(resolve_achievement_source(&state, &source_id, &game_id).is_ok())
+        let mut choices = game_source_choices(&state, &game_id)?;
+        choices.retain(|choice| choice.source_id != "merged");
+        for choice in &mut choices {
+            choice.source_path = resolve_achievement_source(&state, &choice.source_id, &game_id)
+                .ok()
+                .and_then(|path| path.parent().map(Path::to_path_buf));
+        }
+        choices.retain(|choice| choice.source_path.is_some());
+        Ok(choices)
     })
     .await
     .map_err(error)?
@@ -736,8 +743,13 @@ fn reveal_source_path(target: &Path) -> CommandResult<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let directory = target
+            .parent()
+            .ok_or_else(|| "The achievement source folder is unavailable".to_string())?
+            .canonicalize()
+            .map_err(error)?;
         Command::new("explorer.exe")
-            .arg(format!("/select,{}", target.display()))
+            .arg(directory)
             .creation_flags(0x0800_0000)
             .spawn()
             .map(|_| ())
@@ -1825,6 +1837,13 @@ struct GameSourceChoice {
 fn game_sources(
     state: State<'_, AppState>,
     game_id: String,
+) -> CommandResult<Vec<GameSourceChoice>> {
+    game_source_choices(&state, &game_id)
+}
+
+fn game_source_choices(
+    state: &State<'_, AppState>,
+    game_id: &str,
 ) -> CommandResult<Vec<GameSourceChoice>> {
     let store = state.store.lock().map_err(lock_error)?;
     let settings = store.load_settings().map_err(error)?;
@@ -4652,7 +4671,7 @@ pub fn run() {
             export_goldberg_achievements,
             open_data_location,
             open_achievement_source,
-            achievement_source_available,
+            openable_game_sources,
             diagnostics,
             operation_status,
             retry_failed_notifications,
