@@ -48,6 +48,7 @@
   let avatarData = '';
   let gameSourceChoices: SourceChoice[] = [];
   let activeAchievementSource = '';
+  let achievementRequest = 0;
   let diagnosticData: { appVersion: string; observationCount: number; gameCount: number; enabledSourceCount: number; missingSourceCount: number; pendingNotifications: number; failedNotifications: number; recentErrors: string[]; notificationLog: string; watchers: Array<{ name: string; enabled: boolean; lastHeartbeatAt: number; lastWorkAt?: number; lastSuccessAt?: number; lastError?: string }> } | null = null;
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
@@ -346,6 +347,7 @@
   }
 
   async function openGame(game: GameSummary, achievementId = '') {
+    const request = ++achievementRequest;
     gameMenu = null;
     achievementQuery = '';
     unlockedCollapsed = false;
@@ -356,25 +358,31 @@
     achievements = [];
     achievementStatus = 'Loading achievements…';
     try {
-      gameSourceChoices = await invoke<typeof gameSourceChoices>('game_sources', { gameId: game.gameId });
-      activeAchievementSource = preferredAchievementSource(gameSourceChoices, game.sourceId);
-      achievements = await invoke<AchievementObservation[]>('list_achievements', {
-        sourceId: activeAchievementSource,
+      const sourceChoices = await invoke<SourceChoice[]>('game_sources', { gameId: game.gameId });
+      if (request !== achievementRequest) return;
+      gameSourceChoices = sourceChoices;
+      const sourceId = preferredAchievementSource(sourceChoices, game.sourceId);
+      activeAchievementSource = sourceId;
+      let loadedAchievements = await invoke<AchievementObservation[]>('list_achievements', {
+        sourceId,
         gameId: game.gameId,
       });
+      if (request !== achievementRequest) return;
       let metadataError = '';
-      if (achievements.length === 0 && hasSteamAppId(game)) {
+      if (loadedAchievements.length === 0 && hasSteamAppId(game)) {
         achievementStatus = 'Fetching Steam achievement information…';
         try {
           await invoke('refresh_metadata', { gameId: game.gameId });
-          achievements = await invoke<AchievementObservation[]>('list_achievements', {
-            sourceId: activeAchievementSource,
+          loadedAchievements = await invoke<AchievementObservation[]>('list_achievements', {
+            sourceId,
             gameId: game.gameId,
           });
         } catch (error) {
           metadataError = String(error);
         }
       }
+      if (request !== achievementRequest) return;
+      achievements = loadedAchievements;
       achievementStatus = achievements.length === 0
         ? `No achievements were read from this source.${metadataError ? ` Steam information could not be refreshed: ${metadataError}` : ''}`
         : '';
@@ -383,23 +391,37 @@
         document.querySelector(`[data-achievement-id="${CSS.escape(achievementId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     } catch (error) {
-      achievementStatus = `Could not load achievements: ${String(error)}`;
+      if (request === achievementRequest) {
+        achievementStatus = `Could not load achievements: ${String(error)}`;
+      }
     }
   }
 
   async function changeAchievementSource() {
     if (!selectedGame) return;
+    const request = ++achievementRequest;
+    const gameId = selectedGame.gameId;
+    const sourceId = activeAchievementSource;
     achievementStatus = 'Loading achievements…';
     try {
-      achievements = await invoke<AchievementObservation[]>('list_achievements', {
-        sourceId: activeAchievementSource,
-        gameId: selectedGame.gameId,
+      const loadedAchievements = await invoke<AchievementObservation[]>('list_achievements', {
+        sourceId,
+        gameId,
       });
+      if (request !== achievementRequest) return;
+      achievements = loadedAchievements;
       achievementStatus = achievements.length ? '' : 'No achievements were read from this source.';
     } catch (error) {
-      achievements = [];
-      achievementStatus = `Could not load this source: ${String(error)}`;
+      if (request === achievementRequest) {
+        achievements = [];
+        achievementStatus = `Could not load this source: ${String(error)}`;
+      }
     }
+  }
+
+  function closeGameDetails() {
+    achievementRequest += 1;
+    selectedGame = null;
   }
 
   function kindForSource(sourceId?: string) {
@@ -815,7 +837,7 @@
         void cancelSettings();
       }
     } else if (selectedGame) {
-      selectedGame = null;
+      closeGameDetails();
     }
   }
 
@@ -918,7 +940,7 @@
           <div><h2>{selectedGame.name}</h2><div class="game-source-line"><SourceBadge source={activeSourceKind()} description={activeAchievementSource === 'merged' ? 'Merged from every enabled source' : sourceDescription(activeSourceKind())} />{#if gameSourceChoices.length > 1}<select class="game-source-select" bind:value={activeAchievementSource} onchange={changeAchievementSource} aria-label="Achievement progress source" title="Choose which progress source these achievements use">{#each gameSourceChoices as choice}<option value={choice.sourceId}>{sourceChoiceLabel(choice)}</option>{/each}</select>{:else}<span title={sourceDescription(activeSourceKind())}>{sourceLabel(activeSourceKind())} progress</span>{/if}</div></div>
         </div>
         <div class="game-activity"><div class="achievement-summary"><strong>{detailUnlocked()} / {achievements.length}</strong><span>{achievements.length ? Math.round(detailUnlocked() / achievements.length * 100) : 0}%</span></div>{#if achievements.some((achievement) => achievement.trophyGrade)}<ul class="detail-trophies trophy-totals" aria-label="Unlocked trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('platinum')}</li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('gold')}</li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('silver')}</li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('bronze')}</li></ul>{/if}</div>
-        <button class="back-button" aria-label="Back to games" title="Back to games" onclick={() => selectedGame = null}><i class="fas fa-chevron-left"></i></button>
+        <button class="back-button" aria-label="Back to games" title="Back to games" onclick={closeGameDetails}><i class="fas fa-chevron-left"></i></button>
       </div>
       <div class="achievement-tools"><div id="achievement-search"><span><i class="fas fa-search"></i></span><input class:has={achievementQuery.length > 0} type="search" bind:value={achievementQuery} placeholder="Search achievements" aria-label="Search achievements" /></div></div>
       {#if achievementStatus}<p class="detail-status" role="status" aria-live="polite">{achievementStatus}</p>{/if}
