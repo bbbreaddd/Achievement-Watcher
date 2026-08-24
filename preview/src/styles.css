@@ -63,20 +63,20 @@ section { max-width: 1180px; margin: 0 auto; }
 .game-box:hover .game-header img, .game-box:hover .game-header > span:first-child { opacity: .45; }
 .game-menu-button { position: absolute; z-index: 3; top: 5px; right: 5px; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border: 1px solid #ffffff30; border-radius: 2px; background: #0b111ae6; color: #fff; font-size: 11px; opacity: 0; transition: opacity .14s ease; }
 .game-box:hover .game-menu-button, .game-menu-button:focus-visible { opacity: .9; }
-#game-list .game-info { max-width: 230px; display: block; padding: 5px 10px 10px; }
+#game-list .game-info { width: 100%; max-width: 230px; display: block; padding: 5px 10px; }
 #game-list .game-info > span:first-child { display: flex; align-items: center; gap: 6px; min-height: 22px; }
 #game-list .game-info strong { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px OpenSans, sans-serif; }
 #game-list .source-badge { width: 18px; height: 18px; flex-basis: 18px; }
-.game-progress { position: relative; height: 18px; overflow: hidden; background: #15202d; }
+.game-progress { position: relative; width: 100%; height: 18px; display: block; overflow: hidden; background: #15202d; }
 .game-progress i { display: block; height: 100%; background: #3f63b0; transition: width .3s linear; }
-.game-progress::before { content: attr(data-percent) '%'; position: absolute; z-index: 1; inset: 0; display: grid; place-items: center; color: #dedede; text-shadow: 3px 3px 3px #0008; font: 12px OpenSans, sans-serif; }
+.game-progress::before { content: attr(data-percent) '%'; position: absolute; z-index: 1; inset: 0; display: flex; align-items: center; justify-content: center; padding-bottom: 1px; color: #dedede; text-shadow: 2px 2px 2px #000a; font: 13px/1 OpenSans, sans-serif; }
 #game-list .empty { height: 100%; min-height: 220px; border: 0; background: transparent; }
 #game-list.view-portrait > ul { grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); }
 #game-list.view-portrait > ul > li { padding: 15px; }
 #game-list.view-portrait .game-box { width: 150px; }
 #game-list.view-portrait .game-header { height: 225px; }
 #game-list.view-portrait .game-info { max-width: 150px; }
-#game-list.view-portrait .game-progress { height: 14px; }
+#game-list.view-portrait .game-progress { height: 16px; }
 .trophy-totals { margin-top: 5px !important; }
 .trophy-totals .platinum, .trophy-grade.platinum { color: #a8e8f0; }
 .trophy-totals .gold, .trophy-grade.gold { color: #f2c84b; }
