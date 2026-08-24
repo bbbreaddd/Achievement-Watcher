@@ -12,6 +12,7 @@ $mediaSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\media')).Path
 $localeSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\locale')).Path
 $installerSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\build')).Path
 $presetSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\presets')).Path
+$binarySourceRoot = Join-Path $sourceRoot 'src-tauri\binaries'
 $stageRoot = Join-Path $buildRoot 'source'
 $assetStageRoot = Join-Path $buildRoot 'app\Source'
 $resourceStageRoot = Join-Path $buildRoot 'app\resources'
@@ -23,7 +24,10 @@ $env:CARGO_TARGET_DIR = Join-Path $buildRoot 'target'
 New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR,$stageRoot,$assetStageRoot,$resourceStageRoot,$mediaStageRoot,$localeStageRoot,$installerStageRoot,$presetStageRoot | Out-Null
 
 function Sync-Source {
-  & robocopy $sourceRoot $stageRoot /MIR /XD node_modules target dist bin obj /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
+  # Build-SteamHelper writes the target-suffixed sidecar into the staged
+  # binaries directory. Exclude that directory so /MIR cannot delete the
+  # generated Windows binary while Tauri is starting.
+  & robocopy $sourceRoot $stageRoot /MIR /XD node_modules target dist bin obj $binarySourceRoot /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "Source staging failed with robocopy exit code $LASTEXITCODE" }
   & robocopy $assetSourceRoot $assetStageRoot *.svg /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "Source icon staging failed with robocopy exit code $LASTEXITCODE" }
@@ -118,10 +122,10 @@ try {
 
   Build-SteamHelper
 
-  $syncJob = Start-Job -ArgumentList $sourceRoot,$stageRoot,$assetSourceRoot,$assetStageRoot,$resourceSourceRoot,$resourceStageRoot,$mediaSourceRoot,$mediaStageRoot,$localeSourceRoot,$localeStageRoot,$installerSourceRoot,$installerStageRoot,$presetSourceRoot,$presetStageRoot -ScriptBlock {
-    param($source, $stage, $assetSource, $assetStage, $resourceSource, $resourceStage, $mediaSource, $mediaStage, $localeSource, $localeStage, $installerSource, $installerStage, $presetSource, $presetStage)
+  $syncJob = Start-Job -ArgumentList $sourceRoot,$stageRoot,$assetSourceRoot,$assetStageRoot,$resourceSourceRoot,$resourceStageRoot,$mediaSourceRoot,$mediaStageRoot,$localeSourceRoot,$localeStageRoot,$installerSourceRoot,$installerStageRoot,$presetSourceRoot,$presetStageRoot,$binarySourceRoot -ScriptBlock {
+    param($source, $stage, $assetSource, $assetStage, $resourceSource, $resourceStage, $mediaSource, $mediaStage, $localeSource, $localeStage, $installerSource, $installerStage, $presetSource, $presetStage, $binarySource)
     while ($true) {
-      & robocopy $source $stage /MIR /XD node_modules target dist bin obj /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $source $stage /MIR /XD node_modules target dist bin obj $binarySource /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
       & robocopy $assetSource $assetStage *.svg /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
       & robocopy $resourceSource $resourceStage /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
       & robocopy $mediaSource $mediaStage *.wav /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
