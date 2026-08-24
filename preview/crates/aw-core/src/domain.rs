@@ -197,6 +197,7 @@ pub struct GameSummary {
 pub struct AppSettings {
     pub language: String,
     pub username: String,
+    pub username_customized: Option<bool>,
     pub profile_avatar_path: Option<PathBuf>,
     pub profile_avatar_squared: bool,
     pub thumbnail_portrait: bool,
@@ -277,6 +278,7 @@ impl Default for AppSettings {
             username: std::env::var("USERNAME")
                 .or_else(|_| std::env::var("USER"))
                 .unwrap_or_else(|_| "User".into()),
+            username_customized: Some(false),
             profile_avatar_path: None,
             profile_avatar_squared: false,
             thumbnail_portrait: false,
