@@ -47,7 +47,10 @@
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
   let gameMenuElement: HTMLElement;
+  let avatarMenuElement: HTMLElement;
+  let gameConfigElement: HTMLElement;
   let menuReturnFocus: HTMLElement | null = null;
+  let gameConfigReturnFocus: HTMLElement | null = null;
   let confirmationReturnFocus: HTMLElement | null = null;
   let confirmationBusy = false;
   let confirmation: { title: string; message: string; confirmLabel: string; action: () => void | Promise<void> } | null = null;
@@ -80,6 +83,9 @@
   }
 
   function gameArtwork(game: GameSummary) {
+    if (game.icon && (/^[a-zA-Z]:[\\/]/.test(game.icon) || game.icon.startsWith('\\\\'))) {
+      return imageUrl(game.icon);
+    }
     if (settings?.thumbnailPortrait && hasSteamAppId(game)) {
       return `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.gameId}/library_600x900_2x.jpg`;
     }
@@ -88,7 +94,9 @@
 
   function gameArtworkFailed(event: Event, game: GameSummary) {
     const image = event.currentTarget as HTMLImageElement;
-    if (settings?.thumbnailPortrait && game.icon && image.src !== imageUrl(game.icon)) image.src = imageUrl(game.icon);
+    const localFailed = game.icon && (/^[a-zA-Z]:[\\/]/.test(game.icon) || game.icon.startsWith('\\\\')) && image.src === imageUrl(game.icon);
+    if (localFailed && settings?.thumbnailPortrait && hasSteamAppId(game)) image.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.gameId}/library_600x900_2x.jpg`;
+    else if (settings?.thumbnailPortrait && game.icon && image.src !== imageUrl(game.icon)) image.src = imageUrl(game.icon);
     else image.remove();
   }
 
@@ -118,16 +126,17 @@
   }
 
   function closeGameMenu(restoreFocus = false) {
+    if (!gameMenu) return;
     gameMenu = null;
+    const target = menuReturnFocus;
+    menuReturnFocus = null;
     if (restoreFocus) {
-      const target = menuReturnFocus;
-      menuReturnFocus = null;
       void tick().then(() => target?.focus());
     }
   }
 
-  function handleMenuKeydown(event: KeyboardEvent) {
-    const items = Array.from(gameMenuElement.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+  function handleMenuKeydown(event: KeyboardEvent, element: HTMLElement, close: () => void) {
+    const items = Array.from(element.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
     if (!items.length) return;
     const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
     let target: HTMLButtonElement | undefined;
@@ -137,7 +146,7 @@
     else if (event.key === 'End') target = items.at(-1);
     else if (event.key === 'Escape') {
       event.preventDefault();
-      closeGameMenu(true);
+      close();
       return;
     } else if (event.key === 'Tab') {
       closeGameMenu();
@@ -146,6 +155,25 @@
     if (target) {
       event.preventDefault();
       target.focus();
+    }
+  }
+
+  async function showAvatarMenu(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    menuReturnFocus = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    avatarMenu = { x: event.clientX, y: event.clientY };
+    await tick();
+    avatarMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }
+
+  function closeAvatarMenu(restoreFocus = false) {
+    if (!avatarMenu) return;
+    avatarMenu = null;
+    const target = menuReturnFocus;
+    menuReturnFocus = null;
+    if (restoreFocus) {
+      void tick().then(() => target?.focus());
     }
   }
 
@@ -546,10 +574,40 @@
     await save();
   }
 
-  function configureGame(game: GameSummary) {
-    gameMenu = null;
+  async function configureGame(game: GameSummary) {
+    gameConfigReturnFocus = menuReturnFocus;
+    closeGameMenu();
     const config = settings?.gameLaunchConfigs[game.gameId];
     gameConfig = { game, executable: config?.executable ?? '', arguments: config?.arguments ?? '' };
+    await tick();
+    gameConfigElement?.querySelector<HTMLElement>('input, button')?.focus();
+  }
+
+  function closeGameConfig() {
+    gameConfig = null;
+    const target = gameConfigReturnFocus;
+    gameConfigReturnFocus = null;
+    void tick().then(() => target?.focus());
+  }
+
+  function handleDialogKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeGameConfig();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const items = Array.from(gameConfigElement.querySelectorAll<HTMLElement>('input, button:not(:disabled)'));
+    if (!items.length) return;
+    const first = items[0];
+    const last = items.at(-1)!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   async function chooseGameExecutable() {
@@ -668,7 +726,7 @@
     settings.gameLaunchConfigs = { ...settings.gameLaunchConfigs, [gameConfig.game.gameId]: {
       executable: gameConfig.executable, arguments: gameConfig.arguments,
     } };
-    if (await save()) gameConfig = null;
+    if (await save()) closeGameConfig();
   }
 
   async function launchGame(game: GameSummary) {
@@ -685,11 +743,12 @@
   function handleWindowKeydown(event: KeyboardEvent) {
     if (event.key !== 'Escape') return;
     if (confirmation) return;
-    if (gameMenu || avatarMenu) {
+    if (gameMenu) {
       closeGameMenu(true);
-      avatarMenu = null;
+    } else if (avatarMenu) {
+      closeAvatarMenu(true);
     } else if (gameConfig) {
-      gameConfig = null;
+      closeGameConfig();
     } else if (view === 'settings') {
       void cancelSettings();
     } else if (selectedGame) {
@@ -762,7 +821,7 @@
 </script>
 
 <svelte:head><title>Achievement Watcher</title></svelte:head>
-<svelte:window onclick={() => { closeGameMenu(); avatarMenu = null; }} onkeydown={handleWindowKeydown} />
+<svelte:window onclick={() => { closeGameMenu(); closeAvatarMenu(); }} onkeydown={handleWindowKeydown} />
 
 <TitleBar
   {scanning}
@@ -820,7 +879,7 @@
     </section>
   {:else}
     <section id="home" aria-labelledby="library-title">
-      <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
+      <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={showAvatarMenu}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
 {#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if startupError}<div class="empty error" role="alert"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><strong>Could not load the library</strong><span>{startupError}</span><div class="empty-actions"><button onclick={initializeApp}>Retry</button><button onclick={() => invoke('open_data_location', { location: 'data' }).catch((error) => status = String(error))}>Open data folder</button></div></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => showGameMenu(event, game)} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="game-menu-button" title={`More actions for ${game.name}`} aria-label={`More actions for ${game.name}`} onclick={(event) => showGameMenu(event, game)}><i class="fas fa-ellipsis-v"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
@@ -1000,7 +1059,7 @@
   <aside class="update-banner" aria-live="polite"><i class="fas fa-download"></i><div><strong>Achievement Watcher {availableUpdate.version} is available</strong><span>{availableUpdate.installerName}</span></div><button onclick={() => invoke('open_release_page', { url: availableUpdate!.releaseUrl })}>Release notes</button><button onclick={skipUpdate}>Skip</button><button class="primary" disabled={installingUpdate} onclick={installAvailableUpdate}>{installingUpdate ? 'Downloading…' : 'Install update'}</button></aside>
 {/if}
 {#if avatarMenu && settings}
-  <div class="context-menu" style={`left:${Math.min(avatarMenu.x, innerWidth - 240)}px;top:${Math.min(avatarMenu.y, innerHeight - 240)}px`} role="menu" tabindex="-1" oncontextmenu={(event) => event.preventDefault()}>
+  <div bind:this={avatarMenuElement} class="context-menu" style={`left:${Math.min(avatarMenu.x, innerWidth - 240)}px;top:${Math.min(avatarMenu.y, innerHeight - 240)}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, avatarMenuElement, () => closeAvatarMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
     <div class="context-title">Profile avatar</div>
     <button role="menuitemcheckbox" aria-checked={settings.profileAvatarSquared} onclick={() => { if (settings) { settings.profileAvatarSquared = !settings.profileAvatarSquared; avatarMenu = null; void save(); } }}><i class={settings.profileAvatarSquared ? 'fas fa-check-square' : 'far fa-square'}></i> Squared</button>
     <button role="menuitem" onclick={() => { avatarMenu = null; void chooseAvatar(); }}><i class="fas fa-folder-open"></i> Browse…</button>
@@ -1009,16 +1068,16 @@
   </div>
 {/if}
 {#if gameMenu}
-  <div bind:this={gameMenuElement} class="context-menu" style={`left:${Math.max(8, Math.min(gameMenu.x, innerWidth - 218))}px;top:${Math.max(8, Math.min(gameMenu.y, innerHeight - 450))}px`} role="menu" tabindex="-1" onkeydown={handleMenuKeydown} oncontextmenu={(event) => event.preventDefault()}>
+  <div bind:this={gameMenuElement} class="context-menu" style={`left:${Math.max(8, Math.min(gameMenu.x, innerWidth - 218))}px;top:${Math.max(8, Math.min(gameMenu.y, innerHeight - 450))}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, gameMenuElement, () => closeGameMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
     <div class="context-title">{gameMenu.game.name}</div>
-    <button role="menuitem" onclick={() => launchGame(gameMenu!.game)}>Play</button>
+    {#if settings?.showPlayButton}<button role="menuitem" onclick={() => launchGame(gameMenu!.game)}>Play</button>{/if}
     <button role="menuitem" onclick={() => openGame(gameMenu!.game)}>View achievements</button>
-    <button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>
+    {#if settings?.showPlayButton}<button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>{/if}
     <button role="menuitem" onclick={() => refreshGameMetadata(gameMenu!.game)}>Refresh game information</button>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => exportGoldbergAchievements(gameMenu!.game)}>Generate Goldberg achievements.json</button>
     <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Clear cached information?', `${game.name} will keep its local achievement progress, but downloaded names and artwork may need to be fetched again.`, 'Clear cache', () => clearGameMetadata(game)); }}>Clear cached information</button>
     <button role="menuitem" disabled={gameMenu.game.playtimeSeconds === 0 && gameMenu.game.lastPlayed === 0} onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Reset game activity?', `Tracked playtime and the last-played date for ${game.name} will be cleared.`, 'Reset activity', () => resetGameActivity(game)); }}>Reset playtime and last played</button>
-    <button role="menuitem" onclick={() => { gameMenu = null; invoke('open_data_location', { location: 'data' }).catch((error) => status = String(error)); }}>Open Achievement Watcher data folder</button>
+    <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: game.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open achievement source</button>
     <div class="context-separator"></div>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>
@@ -1031,12 +1090,12 @@
   <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} busy={confirmationBusy} onConfirm={runConfirmedAction} onCancel={cancelConfirmation} />
 {/if}
 {#if gameConfig}
-  <div class="dialog-overlay" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) gameConfig = null; }}>
-    <div class="game-config-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="game-config-title">
+  <div class="dialog-overlay" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeGameConfig(); }}>
+    <div bind:this={gameConfigElement} class="game-config-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="game-config-title" onkeydown={handleDialogKeydown}>
       <h2 id="game-config-title">Launch {gameConfig.game.name}</h2>
       <label><span>Executable</span><div><input readonly value={gameConfig.executable} placeholder="Choose an .exe, .bat, or .cmd file" /><button onclick={chooseGameExecutable}>Browse</button></div></label>
       <label><span>Launch arguments</span><input bind:value={gameConfig.arguments} placeholder="Optional" /></label>
-      <div class="dialog-actions"><button onclick={() => gameConfig = null}>Cancel</button><button onclick={saveGameConfig} disabled={!gameConfig.executable}>Save</button></div>
+      <div class="dialog-actions"><button onclick={closeGameConfig}>Cancel</button><button onclick={saveGameConfig} disabled={!gameConfig.executable}>Save</button></div>
     </div>
   </div>
 {/if}
