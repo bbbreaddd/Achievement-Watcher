@@ -31,6 +31,7 @@ pub struct SteamAccount {
     pub steam_id: String,
     pub name: String,
     pub most_recent: bool,
+    pub avatar_path: Option<PathBuf>,
 }
 
 pub fn accounts(locations: &[SourceLocation]) -> Vec<SteamAccount> {
@@ -64,6 +65,13 @@ pub fn accounts(locations: &[SourceLocation]) -> Vec<SteamAccount> {
                     .to_string();
                 current = Some(SteamAccount {
                     account_id,
+                    avatar_path: ["png", "jpg", "jpeg"]
+                        .into_iter()
+                        .map(|extension| {
+                            root.join("config/avatarcache")
+                                .join(format!("{steam_id}.{extension}"))
+                        })
+                        .find(|path| path.is_file()),
                     steam_id,
                     name: String::new(),
                     most_recent: false,

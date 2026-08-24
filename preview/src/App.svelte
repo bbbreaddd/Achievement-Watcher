@@ -2,9 +2,9 @@
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
+  import { open } from '@tauri-apps/plugin-dialog';
   import { onMount, tick } from 'svelte';
-  import { completionPercent, sourceDescription, sourceLabel } from './library';
+  import { completionPercent, preferredAchievementSource, sourceDescription, sourceLabel } from './library';
   import { operationMessage } from './operation';
   import { cloneSettings, notificationPresentation, settingsChanged } from './settings';
   import defaultAvatar from '../../app/resources/img/avatar.png';
@@ -35,11 +35,11 @@
   let settingsTab: 'general' | 'notification' | 'souvenir' | 'folder' | 'source' | 'advanced' | 'debug' = 'general';
   let gameMenu: { game: GameSummary; x: number; y: number; sourceAvailable?: boolean } | null = null;
   let avatarMenu: { x: number; y: number } | null = null;
-  let achievementSort: 'name' | 'time' | 'progress' | 'rarity' = 'name';
+  let achievementSort: 'name' | 'time' | 'progress' | 'rarity' = 'rarity';
   let achievementQuery = '';
   let unlockedCollapsed = false;
   let lockedCollapsed = false;
-  let steamAccounts: Array<{ accountId: string; steamId: string; name: string; mostRecent: boolean }> = [];
+  let steamAccounts: Array<{ accountId: string; steamId: string; name: string; mostRecent: boolean; avatarPath?: string }> = [];
   let gameConfig: { game: GameSummary; executable: string; arguments: string } | null = null;
   let highlightedAchievement = '';
   let revealHiddenForGame = false;
@@ -235,6 +235,12 @@
 
   function detailUnlocked() { return achievements.filter((achievement) => achievement.achieved).length; }
 
+  function activeSteamAccount() {
+    return steamAccounts.find((account) => account.accountId === settings?.steamAccountId || account.steamId === settings?.steamAccountId)
+      ?? steamAccounts.find((account) => account.mostRecent)
+      ?? steamAccounts[0];
+  }
+
   function achievementRows(achieved: boolean) {
     const term = achievementQuery.trim().toLowerCase();
     return achievements.filter((achievement) => achievement.achieved === achieved
@@ -258,13 +264,6 @@
 
   function hiddenLockedCount() {
     return achievements.filter((achievement) => !achievement.achieved && achievement.hidden).length;
-  }
-
-  function formatPlaytime(seconds: number) {
-    if (seconds < 60) return 'less than a minute';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return hours ? `${hours}h ${minutes}m` : `${minutes} minutes`;
   }
 
   function formatUnlockTime(timestamp: number) {
@@ -294,8 +293,7 @@
     achievementStatus = 'Loading achievements…';
     try {
       gameSourceChoices = await invoke<typeof gameSourceChoices>('game_sources', { gameId: game.gameId });
-      activeAchievementSource = gameSourceChoices.some((choice) => choice.sourceId === game.sourceId)
-        ? game.sourceId : (gameSourceChoices[0]?.sourceId ?? game.sourceId);
+      activeAchievementSource = preferredAchievementSource(gameSourceChoices, game.sourceId);
       achievements = await invoke<AchievementObservation[]>('list_achievements', {
         sourceId: activeAchievementSource,
         gameId: game.gameId,
@@ -475,8 +473,9 @@
     status = deep ? 'Searching local drives for achievement sources…' : status;
     try {
       const detected = await invoke<AppSettings['sourceLocations']>('detect_sources', { deep });
-      const known = new Set(settings.sourceLocations.map((source) => source.path.toLowerCase()));
-      const additions = detected.filter((source) => !known.has(source.path.toLowerCase()));
+      const normalizePath = (path: string) => path.replaceAll('\\', '/').toLowerCase();
+      const known = new Set(settings.sourceLocations.map((source) => normalizePath(source.path)));
+      const additions = detected.filter((source) => !known.has(normalizePath(source.path)));
       settings.sourceLocations = [...settings.sourceLocations, ...additions];
       settings.sourcesInitialized = true;
       if (await save()) {
@@ -537,34 +536,6 @@
     gameMenu = null;
     try { await invoke('open_game_website', { gameId: game.gameId, website }); }
     catch (error) { status = `Could not open website: ${String(error)}`; }
-  }
-
-  async function exportGoldbergAchievements(game: GameSummary) {
-    gameMenu = null;
-    const path = await saveDialog({
-      title: 'Generate achievements.json for Goldberg Steam Emulator',
-      defaultPath: 'achievements.json',
-      filters: [{ name: 'JSON', extensions: ['json'] }],
-    });
-    if (!path) return;
-    status = `Exporting achievements for ${game.name}…`;
-    try {
-      const count = await invoke<number>('export_goldberg_achievements', {
-        sourceId: game.sourceId, gameId: game.gameId, path,
-      });
-      status = `Exported ${count} achievements for ${game.name}`;
-    } catch (error) { status = `Goldberg export failed: ${String(error)}`; }
-  }
-
-  async function resetGameActivity(game: GameSummary) {
-    gameMenu = null;
-    try {
-      await invoke('reset_game_activity', { gameId: game.gameId });
-      await refresh();
-      status = `Reset playtime and last played for ${game.name}`;
-    } catch (error) {
-      status = `Could not reset ${game.name}: ${String(error)}`;
-    }
   }
 
   async function blacklistGame(game: GameSummary) {
@@ -819,10 +790,10 @@
       {#if selectedGame.icon}<img class="game-background" src={imageUrl(selectedGame.icon)} alt="" />{/if}
       <div class="achievement-page-header">
         <div class="game-heading">
-          <SourceBadge source={activeSourceKind()} large description={activeAchievementSource === 'merged' ? 'Merged from every enabled source' : sourceDescription(activeSourceKind())} />
-          <div><h2>{selectedGame.name}</h2>{#if gameSourceChoices.length > 1}<select class="game-source-select" bind:value={activeAchievementSource} onchange={changeAchievementSource} aria-label="Achievement progress source" title="Choose which progress source these achievements use">{#each gameSourceChoices as choice}<option value={choice.sourceId}>{sourceChoiceLabel(choice)}</option>{/each}</select>{:else}<span title={sourceDescription(activeSourceKind())}>{sourceLabel(activeSourceKind())} progress</span>{/if}</div>
+          {#if selectedGame.icon}<img class="detail-game-icon" src={imageUrl(selectedGame.icon)} alt="" />{:else}<span class="detail-game-icon fallback">{selectedGame.name.slice(0, 1).toUpperCase()}</span>{/if}
+          <div><h2>{selectedGame.name}</h2><div class="game-source-line"><SourceBadge source={activeSourceKind()} description={activeAchievementSource === 'merged' ? 'Merged from every enabled source' : sourceDescription(activeSourceKind())} />{#if gameSourceChoices.length > 1}<select class="game-source-select" bind:value={activeAchievementSource} onchange={changeAchievementSource} aria-label="Achievement progress source" title="Choose which progress source these achievements use">{#each gameSourceChoices as choice}<option value={choice.sourceId}>{sourceChoiceLabel(choice)}</option>{/each}</select>{:else}<span title={sourceDescription(activeSourceKind())}>{sourceLabel(activeSourceKind())} progress</span>{/if}</div></div>
         </div>
-        <div class="game-activity"><div class="achievement-summary"><strong>{detailUnlocked()} / {achievements.length}</strong><span>{achievements.length ? Math.round(detailUnlocked() / achievements.length * 100) : 0}%</span></div>{#if achievements.some((achievement) => achievement.trophyGrade)}<ul class="detail-trophies trophy-totals" aria-label="Unlocked trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('platinum')}</li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('gold')}</li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('silver')}</li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('bronze')}</li></ul>{/if}{#if selectedGame.playtimeSeconds > 0}<div class="activity-pill" title="Tracked playtime"><i class="fas fa-gamepad"></i> {formatPlaytime(selectedGame.playtimeSeconds)}</div>{/if}{#if selectedGame.lastPlayed > 0}<div class="activity-pill"><i class="far fa-clock"></i> {new Date(selectedGame.lastPlayed * 1000).toLocaleDateString()}</div>{/if}</div>
+        <div class="game-activity"><div class="achievement-summary"><strong>{detailUnlocked()} / {achievements.length}</strong><span>{achievements.length ? Math.round(detailUnlocked() / achievements.length * 100) : 0}%</span></div>{#if achievements.some((achievement) => achievement.trophyGrade)}<ul class="detail-trophies trophy-totals" aria-label="Unlocked trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('platinum')}</li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('gold')}</li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('silver')}</li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> {achievementTrophyTotal('bronze')}</li></ul>{/if}</div>
         <button class="back-button" aria-label="Back to games" title="Back to games" onclick={() => selectedGame = null}><i class="fas fa-chevron-left"></i></button>
       </div>
       <div class="achievement-tools"><div id="achievement-search"><span><i class="fas fa-search"></i></span><input class:has={achievementQuery.length > 0} type="search" bind:value={achievementQuery} placeholder="Search achievements" aria-label="Search achievements" /></div></div>
@@ -859,7 +830,7 @@
     </section>
   {:else}
     <section id="home" aria-labelledby="library-title">
-      <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={showAvatarMenu}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
+      <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={showAvatarMenu}><img src={avatarData || (activeSteamAccount()?.avatarPath ? imageUrl(activeSteamAccount()!.avatarPath!) : defaultAvatar)} alt="" /></button><div class="info"><h1>{activeSteamAccount()?.name || 'Local library'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
 {#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if startupError}<div class="empty error" role="alert"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><strong>Could not load the library</strong><span>{startupError}</span><div class="empty-actions"><button onclick={initializeApp}>Retry</button><button onclick={() => invoke('open_data_location', { location: 'data' }).catch((error) => status = String(error))}>Open data folder</button></div></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => showGameMenu(event, game)} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="game-menu-button" title={`More actions for ${game.name}`} aria-label={`More actions for ${game.name}`} onclick={(event) => showGameMenu(event, game)}><i class="fas fa-ellipsis-v"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
@@ -1051,12 +1022,9 @@
   <div bind:this={gameMenuElement} class="context-menu" style={`left:${Math.max(8, Math.min(gameMenu.x, innerWidth - 218))}px;top:${Math.max(8, Math.min(gameMenu.y, innerHeight - 450))}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, gameMenuElement, () => closeGameMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
     <div class="context-title">{gameMenu.game.name}</div>
     {#if settings?.showPlayButton}<button role="menuitem" onclick={() => launchGame(gameMenu!.game)}>Play</button>{/if}
-    <button role="menuitem" onclick={() => openGame(gameMenu!.game)}>View achievements</button>
     {#if settings?.showPlayButton}<button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>{/if}
     <button role="menuitem" onclick={() => refreshGameMetadata(gameMenu!.game)}>Refresh game information</button>
-    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => exportGoldbergAchievements(gameMenu!.game)}>Generate Goldberg achievements.json</button>
     <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Clear cached information?', `${game.name} will keep its local achievement progress, but downloaded names and artwork may need to be fetched again.`, 'Clear cache', () => clearGameMetadata(game)); }}>Clear cached information</button>
-    <button role="menuitem" disabled={gameMenu.game.playtimeSeconds === 0 && gameMenu.game.lastPlayed === 0} onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Reset game activity?', `Tracked playtime and the last-played date for ${game.name} will be cleared.`, 'Reset activity', () => resetGameActivity(game)); }}>Reset playtime and last played</button>
     <button role="menuitem" disabled={!gameMenu.sourceAvailable} title={gameMenu.sourceAvailable === false ? 'No local achievement file is available for this source' : 'Checking the local source…'} onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: game.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open achievement source</button>
     <div class="context-separator"></div>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>

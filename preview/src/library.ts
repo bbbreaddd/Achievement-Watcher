@@ -1,4 +1,9 @@
-import type { GameSummary } from './types';
+import type { GameSummary, SourceKind } from './types';
+
+interface AchievementSourceChoice {
+  sourceId: string;
+  sourceKind?: SourceKind;
+}
 
 export function completionPercent(game: GameSummary): number {
   if (game.total <= 0) return 0;
@@ -31,4 +36,11 @@ export function sourceDescription(source?: string): string {
     case 'watchdog_cache': return 'Achievement progress imported from the original Achievement Watcher cache';
     default: return 'Game and achievement information is cached; no local progress source was found';
   }
+}
+
+export function preferredAchievementSource(choices: AchievementSourceChoice[], fallback: string): string {
+  return choices.find((choice) => choice.sourceKind === 'steam' && choice.sourceId !== 'merged')?.sourceId
+    ?? choices.find((choice) => choice.sourceId === fallback && choice.sourceId !== 'merged')?.sourceId
+    ?? choices[0]?.sourceId
+    ?? fallback;
 }
