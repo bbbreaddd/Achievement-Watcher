@@ -181,7 +181,9 @@ section { max-width: 1180px; margin: 0 auto; }
 .toolbar > div { display: flex; align-items: baseline; gap: 10px; }
 .toolbar h2 { font-size: 19px; font-weight: 600; }
 .toolbar span { color: #8f9cad; font-size: 12px; }
-.empty { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid #34465d; background: #152131; color: #97a4b4; }
+.empty { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid #34465d; background: #152131; color: #97a4b4; text-align: center; }
+.empty > i { margin-bottom: 4px; color: #66809c; font-size: 24px; }
+.empty.compact { min-height: 170px; margin: 0 0 18px; background: #15202dcc; }
 .empty strong { color: #e7edf4; font-size: 16px; }
 .empty button { margin-top: 8px; }
 .library-controls { display: grid; grid-template-columns: minmax(220px, 1fr) 170px 130px; gap: 8px; margin-bottom: 12px; }
@@ -242,8 +244,9 @@ section { max-width: 1180px; margin: 0 auto; }
 .folder-setting code, .diagnostic code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8f9cad; font-family: Consolas, monospace; font-size: 11px; }
 .muted { padding: 12px 0; color: #8f9cad; }
 footer { position: fixed; left: 0; right: 0; bottom: 0; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-top: 1px solid #34465d; background: #111c2b; color: #8f9cad; font-size: 11px; }
-footer span { width: 7px; height: 7px; border-radius: 50%; background: #6d9a73; }
-footer span.busy { background: #d59a2e; }
+footer > span:first-child { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #6d9a73; }
+footer > span:first-child.busy { background: #d59a2e; }
+.footer-message { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .update-banner { position: fixed; z-index: 450; left: 18px; right: 18px; bottom: 42px; min-height: 62px; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #526b84; background: #17283a; box-shadow: 0 8px 24px #000a; }
 .update-banner > i { width: 28px; color: #67c1f5; font-size: 22px; text-align: center; }
 .update-banner > div { min-width: 0; flex: 1; }

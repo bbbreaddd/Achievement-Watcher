@@ -16,6 +16,7 @@
   let settings: AppSettings | null = null;
   let settingsSnapshot: AppSettings | null = null;
   let status = 'Preparing local library…';
+  let initializing = true;
   let scanning = false;
   let view: 'library' | 'settings' = 'library';
   let selectedGame: GameSummary | null = null;
@@ -112,6 +113,15 @@
         if (librarySort === 'recent') return b.lastUnlockTime - a.lastUnlockTime || a.name.localeCompare(b.name);
         return a.name.localeCompare(b.name);
       });
+  }
+
+  function clearLibraryFilters() {
+    query = '';
+    libraryFilter = 'all';
+  }
+
+  function visibleAchievementCount() {
+    return achievementRows(true).length + achievementRows(false).length;
   }
 
   function totalUnlocked() {
@@ -625,6 +635,8 @@
         void checkUpdates(false);
       } catch (error) {
         status = `Startup failed: ${String(error)}`;
+      } finally {
+        initializing = false;
       }
       if (disposed) cleanup.splice(0).forEach((unlisten) => unlisten());
     })();
@@ -663,6 +675,14 @@
       </div>
       <div class="achievement-tools"><div id="achievement-search"><span><i class="fas fa-search"></i></span><input class:has={achievementQuery.length > 0} type="search" bind:value={achievementQuery} placeholder="Search achievements" aria-label="Search achievements" /></div></div>
       {#if achievementStatus}<p class="detail-status">{achievementStatus}</p>{/if}
+      {#if achievementQuery && achievements.length > 0 && visibleAchievementCount() === 0}
+        <div class="empty compact">
+          <i class="fas fa-search" aria-hidden="true"></i>
+          <strong>No matching achievements</strong>
+          <span>Try a different name or description.</span>
+          <button onclick={() => achievementQuery = ''}>Clear search</button>
+        </div>
+      {/if}
       {#each [['Unlocked', true], ['Locked', false]] as group}
         {@const rows = achievementRows(group[1] as boolean)}
         {@const collapsed = group[1] ? unlockedCollapsed : lockedCollapsed}
@@ -690,7 +710,7 @@
       <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
-{#if games.length === 0}<div class="empty"><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if your folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); gameMenu = { game, x: event.clientX, y: event.clientY }; }} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="achievement-button" title={`View ${game.name} achievements`} aria-label={`View ${game.name} achievements`} onclick={(event) => { event.stopPropagation(); void openGame(game); }}><i class="fas fa-trophy"></i></button><button class="play-button" title={`Play ${game.name}`} aria-label={`Play ${game.name}`} onclick={(event) => { event.stopPropagation(); void launchGame(game); }}><i class="fas fa-play"></i></button><button class="config-button" title={`Configure ${game.name}`} aria-label={`Configure ${game.name}`} onclick={(event) => { event.stopPropagation(); configureGame(game); }}><i class="fas fa-tools"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><i class="source-badge" title={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}>{#if sourceIcon(game.sourceKind)}<img src={sourceIcon(game.sourceKind)!} alt="" />{:else}{sourceMark(game.sourceKind)}{/if}</i></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
+{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); gameMenu = { game, x: event.clientX, y: event.clientY }; }} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="achievement-button" title={`View ${game.name} achievements`} aria-label={`View ${game.name} achievements`} onclick={(event) => { event.stopPropagation(); void openGame(game); }}><i class="fas fa-trophy"></i></button><button class="play-button" title={`Play ${game.name}`} aria-label={`Play ${game.name}`} onclick={(event) => { event.stopPropagation(); void launchGame(game); }}><i class="fas fa-play"></i></button><button class="config-button" title={`Configure ${game.name}`} aria-label={`Configure ${game.name}`} onclick={(event) => { event.stopPropagation(); configureGame(game); }}><i class="fas fa-tools"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><i class="source-badge" title={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}>{#if sourceIcon(game.sourceKind)}<img src={sourceIcon(game.sourceKind)!} alt="" />{:else}{sourceMark(game.sourceKind)}{/if}</i></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
       </div>
     </section>
   {/if}
@@ -702,7 +722,7 @@
       <div class="settings-container">
       <nav class="settings-nav" aria-label="Settings categories">
         {#each [['general','fas fa-tools',t('settings.sideMenu.general','General')],['notification','fas fa-bell',t('settings.sideMenu.notification','Notification')],['souvenir','fas fa-camera',t('settings.sideMenu.souvenir','Souvenir')],['folder','far fa-folder',t('settings.sideMenu.folder','Folder')],['source','fas fa-file-import',t('settings.sideMenu.source','Source')],['advanced','fas fa-flask',t('settings.sideMenu.advanced','Advanced')],['debug','fas fa-bug',t('settings.sideMenu.debug','Debug')]] as tab}
-          <button class:active={settingsTab === tab[0]} onclick={() => settingsTab = tab[0] as typeof settingsTab}><i class={tab[1]}></i>{tab[2]}</button>
+          <button class:active={settingsTab === tab[0]} aria-current={settingsTab === tab[0] ? 'page' : undefined} onclick={() => settingsTab = tab[0] as typeof settingsTab}><i class={tab[1]} aria-hidden="true"></i>{tab[2]}</button>
         {/each}
       </nav>
       <div class="settings-content">
@@ -894,7 +914,7 @@
   </div>
 {/if}
 {#if gameConfig}
-  <div class="dialog-overlay" role="presentation">
+  <div class="dialog-overlay" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) gameConfig = null; }}>
     <div class="game-config-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="game-config-title">
       <h2 id="game-config-title">Launch {gameConfig.game.name}</h2>
       <label><span>Executable</span><div><input readonly value={gameConfig.executable} placeholder="Choose an .exe, .bat, or .cmd file" /><button onclick={chooseGameExecutable}>Browse</button></div></label>
@@ -903,4 +923,4 @@
     </div>
   </div>
 {/if}
-<footer><span class:busy={scanning}></span>{status}</footer>
+<footer role="status" aria-live="polite" aria-atomic="true" title={status}><span class:busy={scanning}></span><span class="footer-message">{status}</span></footer>
