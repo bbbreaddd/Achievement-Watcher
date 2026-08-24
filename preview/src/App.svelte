@@ -32,7 +32,7 @@
   let libraryFilter: 'all' | 'tracked' | 'cached' = 'all';
   let librarySort: 'name' | 'progress' | 'recent' = 'name';
   let settingsTab: 'general' | 'notification' | 'souvenir' | 'folder' | 'source' | 'advanced' | 'debug' = 'general';
-  let gameMenu: { game: GameSummary; x: number; y: number } | null = null;
+  let gameMenu: { game: GameSummary; x: number; y: number; sourceAvailable?: boolean } | null = null;
   let avatarMenu: { x: number; y: number } | null = null;
   let achievementSort: 'name' | 'time' | 'progress' | 'rarity' = 'name';
   let achievementQuery = '';
@@ -124,6 +124,10 @@
     gameMenu = { game, x: event.clientX, y: event.clientY };
     await tick();
     gameMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    const available = await invoke<boolean>('achievement_source_available', { sourceId: game.sourceId, gameId: game.gameId }).catch(() => false);
+    if (gameMenu?.game.sourceId === game.sourceId && gameMenu.game.gameId === game.gameId) {
+      gameMenu.sourceAvailable = available;
+    }
   }
 
   function closeGameMenu(restoreFocus = false) {
@@ -1051,7 +1055,7 @@
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => exportGoldbergAchievements(gameMenu!.game)}>Generate Goldberg achievements.json</button>
     <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Clear cached information?', `${game.name} will keep its local achievement progress, but downloaded names and artwork may need to be fetched again.`, 'Clear cache', () => clearGameMetadata(game)); }}>Clear cached information</button>
     <button role="menuitem" disabled={gameMenu.game.playtimeSeconds === 0 && gameMenu.game.lastPlayed === 0} onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Reset game activity?', `Tracked playtime and the last-played date for ${game.name} will be cleared.`, 'Reset activity', () => resetGameActivity(game)); }}>Reset playtime and last played</button>
-    <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: game.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open achievement source</button>
+    <button role="menuitem" disabled={!gameMenu.sourceAvailable} title={gameMenu.sourceAvailable === false ? 'No local achievement file is available for this source' : 'Checking the local source…'} onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: game.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open achievement source</button>
     <div class="context-separator"></div>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
     <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>

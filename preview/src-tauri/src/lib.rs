@@ -659,6 +659,20 @@ async fn open_achievement_source(
     .map_err(error)?
 }
 
+#[tauri::command]
+async fn achievement_source_available(
+    app: AppHandle,
+    source_id: String,
+    game_id: String,
+) -> CommandResult<bool> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        Ok(resolve_achievement_source(&state, &source_id, &game_id).is_ok())
+    })
+    .await
+    .map_err(error)?
+}
+
 fn resolve_achievement_source(
     state: &State<'_, AppState>,
     source_id: &str,
@@ -4400,6 +4414,7 @@ pub fn run() {
             export_goldberg_achievements,
             open_data_location,
             open_achievement_source,
+            achievement_source_available,
             diagnostics,
             operation_status,
             retry_failed_notifications,
