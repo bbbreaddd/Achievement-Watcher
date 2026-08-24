@@ -636,13 +636,18 @@ fn save_settings(
 }
 
 #[tauri::command]
-fn import_legacy(
-    state: State<'_, AppState>,
+async fn import_legacy(
+    app: AppHandle,
     legacy_root: Option<PathBuf>,
 ) -> CommandResult<MigrationReport> {
-    let root = legacy_root.unwrap_or_else(default_legacy_root);
-    let mut store = state.store.lock().map_err(lock_error)?;
-    migration::import_legacy(&mut store, &root).map_err(error)
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let root = legacy_root.unwrap_or_else(default_legacy_root);
+        let mut store = state.store.lock().map_err(lock_error)?;
+        migration::import_legacy(&mut store, &root).map_err(error)
+    })
+    .await
+    .map_err(error)?
 }
 
 #[tauri::command]
@@ -840,7 +845,13 @@ fn observation_source_enabled(
 }
 
 #[tauri::command]
-fn detect_sources(deep: Option<bool>) -> Vec<aw_core::SourceLocation> {
+async fn detect_sources(deep: Option<bool>) -> CommandResult<Vec<aw_core::SourceLocation>> {
+    tauri::async_runtime::spawn_blocking(move || detect_sources_sync(deep.unwrap_or(false)))
+        .await
+        .map_err(error)
+}
+
+fn detect_sources_sync(deep: bool) -> Vec<aw_core::SourceLocation> {
     let mut candidates: Vec<(aw_core::SourceKind, PathBuf)> = Vec::new();
     let mut add = |root: Option<std::ffi::OsString>, paths: &[&str], kind| {
         if let Some(root) = root.map(PathBuf::from) {
@@ -925,7 +936,7 @@ fn detect_sources(deep: Option<bool>) -> Vec<aw_core::SourceLocation> {
     for root in registry::steam_install_paths() {
         candidates.push((aw_core::SourceKind::Steam, root.join("appcache/stats")));
     }
-    if deep.unwrap_or(false) {
+    if deep {
         candidates.extend(smart_find_source_roots());
     }
     let mut seen = HashSet::new();
@@ -1434,7 +1445,17 @@ fn game_sources(
 }
 
 #[tauri::command]
-fn scan_sources(
+async fn scan_sources(app: AppHandle, establish_baseline: Option<bool>) -> CommandResult<usize> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        scan_sources_sync(handle.clone(), state, establish_baseline)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn scan_sources_sync(
     app: AppHandle,
     state: State<'_, AppState>,
     establish_baseline: Option<bool>,
@@ -1915,7 +1936,17 @@ struct ApiAchievement {
 }
 
 #[tauri::command]
-fn refresh_metadata(
+async fn refresh_metadata(app: AppHandle, game_id: Option<String>) -> CommandResult<usize> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        refresh_metadata_sync(handle.clone(), state, game_id)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn refresh_metadata_sync(
     app: AppHandle,
     state: State<'_, AppState>,
     game_id: Option<String>,
