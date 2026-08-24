@@ -5,11 +5,12 @@
   import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
   import { onMount, tick } from 'svelte';
   import { completionPercent, sourceDescription, sourceLabel } from './library';
+  import { cloneSettings, notificationPresentation, settingsChanged } from './settings';
   import defaultAvatar from '../../app/resources/img/avatar.png';
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
-  import type { AchievementObservation, AppSettings, GameSummary, SourceKind, UpdateInfo } from './types';
+  import type { AchievementObservation, AppSettings, GameSummary, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
   let settings: AppSettings | null = null;
@@ -237,7 +238,8 @@
 
   async function testNotification() {
     try {
-      await invoke('test_notification');
+      const presentation = settings ? notificationPresentation(settings) : undefined;
+      await invoke('test_notification', { presentation });
       status = 'Test notification sent';
     } catch (error) {
       status = `Notification test failed: ${String(error)}`;
@@ -287,14 +289,15 @@
       enabled: true,
       notify: true,
     }];
-    if (await save()) await scan(true);
+    status = 'Folder added. Save settings to begin watching it.';
   }
 
-  async function save() {
+  async function persistSettings() {
     if (!settings) return false;
     try {
-      await invoke('save_settings', { settings });
-      await refresh();
+      const result = await invoke<SettingsApplyResult>('save_settings', { settings });
+      if (result.scanRequired) void scan(true);
+      else if (result.libraryChanged) await refresh();
       status = 'Settings saved';
       return true;
     } catch (error) {
@@ -303,23 +306,39 @@
     }
   }
 
+  async function save() {
+    if (view === 'settings') {
+      status = 'Settings have unsaved changes';
+      return true;
+    }
+    return persistSettings();
+  }
+
+  function settingsDirty() {
+    return settingsChanged(settings, settingsSnapshot);
+  }
+
   function openSettings() {
-    if (settings) settingsSnapshot = structuredClone(settings);
+    if (!settings) {
+      status = 'Settings are unavailable because startup did not finish';
+      return;
+    }
+    settingsSnapshot = cloneSettings(settings);
     settingsTab = 'general';
     view = 'settings';
   }
 
   async function acceptSettings() {
-    if (!(await save())) return;
+    if (!(await persistSettings())) return;
     settingsSnapshot = null;
     view = 'library';
   }
 
   async function cancelSettings() {
     if (settingsSnapshot) {
-      settings = structuredClone(settingsSnapshot);
+      settings = cloneSettings(settingsSnapshot);
       applyLanguage(settings.language);
-      await save();
+      await loadAvatar();
     }
     settingsSnapshot = null;
     view = 'library';
@@ -329,7 +348,7 @@
   async function removeSource(id: string) {
     if (!settings) return;
     settings.sourceLocations = settings.sourceLocations.filter((source) => source.id !== id);
-    await save();
+    status = 'Folder removed. Save settings to stop watching it.';
   }
 
   async function detectSources(deep = false, scanAfter = true) {
@@ -543,7 +562,7 @@
     if (!settings || !availableUpdate) return;
     settings.skippedUpdateVersion = availableUpdate.version;
     availableUpdate = null;
-    await save();
+    await persistSettings();
     status = 'This preview version will be skipped';
   }
 
@@ -798,7 +817,7 @@
             <div class="source"><label><input type="checkbox" bind:checked={source.enabled} onchange={save} />{sourceLabel(source.kind)}</label><label title="Allow unlock notifications and souvenir actions from this folder"><input type="checkbox" bind:checked={source.notify} onchange={save} disabled={!source.enabled} />Notify</label><code title={source.path}>{source.path}</code><button aria-label={`Remove ${source.path}`} onclick={() => removeSource(source.id)}>Remove</button></div>
           {:else}<p class="muted">No live achievement folders were detected. Cached games can still be browsed, but unlocks are not monitored.</p>{/each}
         </div>
-        <div class="source-actions"><button onclick={() => detectSources(true, true)}>Smart Find</button><button onclick={() => addSource('steam_emulator')}>Add Steam emulator folder</button><button onclick={() => addSource('rpcs3')}>Add RPCS3 folder</button><button onclick={() => addSource('epic')}>Add Epic emulator folder</button><button onclick={() => addSource('gog')}>Add GOG emulator folder</button></div>
+        <div class="source-actions"><button onclick={() => detectSources(true, false)}>Smart Find</button><button onclick={() => addSource('steam_emulator')}>Add Steam emulator folder</button><button onclick={() => addSource('rpcs3')}>Add RPCS3 folder</button><button onclick={() => addSource('epic')}>Add Epic emulator folder</button><button onclick={() => addSource('gog')}>Add GOG emulator folder</button></div>
       </div>
       {:else if settingsTab === 'source'}
       <div class="settings-group">
@@ -863,7 +882,7 @@
       </div>
       {/if}
       </div></div>
-      <div class="settings-footer"><div class="settings-notice"><span>Preview v{diagnosticData?.appVersion ?? '…'} ·</span><button onclick={() => invoke('open_project_page', { project: 'fork' })}>darktakayanagi/achievement-watcher</button><span>· Original v1.6.8 ·</span><button onclick={() => invoke('open_project_page', { project: 'original' })}>xan105/achievement-watcher</button></div><div><button onclick={cancelSettings}>{t('settings.common.cancel', 'Cancel')}</button><button class="primary" onclick={acceptSettings}>{t('settings.common.save', 'Save')}</button></div></div>
+      <div class="settings-footer"><div class="settings-notice"><span>Preview v{diagnosticData?.appVersion ?? '…'} ·</span><button onclick={() => invoke('open_project_page', { project: 'fork' })}>darktakayanagi/achievement-watcher</button><span>· Original v1.6.8 ·</span><button onclick={() => invoke('open_project_page', { project: 'original' })}>xan105/achievement-watcher</button></div><div><button onclick={cancelSettings}>{t('settings.common.cancel', 'Cancel')}</button><button class="primary" onclick={acceptSettings} disabled={!settingsDirty()}>{t('settings.common.save', 'Save')}</button></div></div>
       </div>
     </section>
   {/if}

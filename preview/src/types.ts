@@ -91,6 +91,11 @@ export interface UpdateInfo {
   installerName: string;
 }
 
+export interface SettingsApplyResult {
+  libraryChanged: boolean;
+  scanRequired: boolean;
+}
+
 export interface GameSummary {
   sourceId: string;
   sourceKind?: SourceKind;
@@ -133,4 +138,20 @@ export interface NotificationEvent {
   observation: AchievementObservation;
   attempts: number;
   nextAttemptAt: number;
+}
+
+export interface NotificationPresentationSettings {
+  mode: NotificationMode;
+  showDescription: boolean;
+  preset: string;
+  sound: string;
+  customSoundPath?: string;
+  durationPercent: number;
+  scalePercent: number;
+  position: string;
+}
+
+export interface NotificationRenderRequest {
+  event: NotificationEvent;
+  presentation: NotificationPresentationSettings;
 }
