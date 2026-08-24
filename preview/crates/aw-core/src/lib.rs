@@ -1,4 +1,5 @@
 pub mod domain;
+pub mod gog;
 pub mod migration;
 pub mod parser;
 mod secure;
