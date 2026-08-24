@@ -2877,18 +2877,7 @@ async fn test_notification(
 ) -> CommandResult<()> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let settings = state
-            .store
-            .lock()
-            .map_err(lock_error)?
-            .load_settings()
-            .map_err(error)?;
-        let presentation = presentation.unwrap_or_else(|| (&settings).into());
-        if presentation.mode == NotificationMode::NativeOnly {
-            deliver_native(&app, &state, &sample_notification(), Some(&presentation))
-        } else {
-            show_overlay(&app, &state, sample_notification(), presentation)
-        }
+        deliver_transient(&app, &state, sample_notification(), presentation)
     })
     .await
     .map_err(error)?
@@ -4200,22 +4189,19 @@ fn show_overlay(
             .unwrap_or(false);
         if waiting {
             notification_log(&state, "renderer timed out; destroying hidden window");
-            let settings = state
-                .store
+            let presentation = state
+                .current_overlay_presentation
                 .lock()
                 .ok()
-                .and_then(|store| store.load_settings().ok())
-                .unwrap_or_default();
-            if event_for_timeout.id >= 0
-                && settings.notification_mode == NotificationMode::OverlayWithNativeFallback
-            {
-                notification_log(&state, "attempting Windows notification fallback");
-                let _ = deliver_native(&handle, &state, &event_for_timeout, None);
-            } else if event_for_timeout.id >= 0 {
-                let _ = state.store.lock().map(|store| {
-                    store.record_delivery(event_for_timeout.id, "overlay", Err("render timeout"))
-                });
-            }
+                .and_then(|current| current.clone())
+                .unwrap_or_else(|| NotificationPresentationSettings::from(&AppSettings::default()));
+            handle_overlay_failure(
+                &handle,
+                &state,
+                &event_for_timeout,
+                &presentation,
+                "render timeout",
+            );
             if let Ok(mut current) = state.current_overlay.lock() {
                 *current = None;
             }
@@ -4248,6 +4234,14 @@ fn show_overlay(
                 == Some(close_id);
             if still_current {
                 notification_log(&state, "watchdog forced custom window shutdown");
+                let presentation = state
+                    .current_overlay_presentation
+                    .lock()
+                    .ok()
+                    .and_then(|current| current.clone())
+                    .unwrap_or_else(|| {
+                        NotificationPresentationSettings::from(&AppSettings::default())
+                    });
                 if let Ok(mut waiting) = state.awaiting_overlay.lock() {
                     waiting.remove(&close_id);
                 }
@@ -4260,22 +4254,13 @@ fn show_overlay(
                 if let Some(window) = app_for_close.get_webview_window("notification") {
                     let _ = window.destroy();
                 }
-                let settings = state
-                    .store
-                    .lock()
-                    .ok()
-                    .and_then(|store| store.load_settings().ok())
-                    .unwrap_or_default();
-                if event.id >= 0
-                    && settings.notification_mode == NotificationMode::OverlayWithNativeFallback
-                {
-                    notification_log(&state, "watchdog attempting Windows notification fallback");
-                    let _ = deliver_native(&app_for_close, &state, &event, None);
-                } else if event.id >= 0 {
-                    let _ = state.store.lock().map(|store| {
-                        store.record_delivery(event.id, "overlay", Err("window watchdog timeout"))
-                    });
-                }
+                handle_overlay_failure(
+                    &app_for_close,
+                    &state,
+                    &event,
+                    &presentation,
+                    "window watchdog timeout",
+                );
                 let _ = dispatch_pending(&app_for_close, &state);
             }
         });
@@ -4398,7 +4383,43 @@ fn deliver_native(
             }
         }
     }
+    let receipt = DeliveryReceipt {
+        event_id: event.id,
+        transport: "native".into(),
+        success: result.is_ok(),
+        error: result.as_ref().err().map(ToString::to_string),
+    };
+    let _ = app.emit("notification-status", receipt);
     result.map_err(error)
+}
+
+fn handle_overlay_failure(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    event: &NotificationEvent,
+    presentation: &NotificationPresentationSettings,
+    reason: &str,
+) {
+    if presentation.mode == NotificationMode::OverlayWithNativeFallback {
+        notification_log(state, "attempting Windows notification fallback");
+        let _ = deliver_native(app, state, event, Some(presentation));
+        return;
+    }
+    if event.id >= 0 {
+        let _ = state
+            .store
+            .lock()
+            .map(|store| store.record_delivery(event.id, "overlay", Err(reason)));
+    }
+    let _ = app.emit(
+        "notification-status",
+        DeliveryReceipt {
+            event_id: event.id,
+            transport: "overlay".into(),
+            success: false,
+            error: Some(reason.into()),
+        },
+    );
 }
 
 fn notification_log(state: &AppState, message: &str) {
