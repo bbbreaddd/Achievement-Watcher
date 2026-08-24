@@ -13,4 +13,9 @@ describe('operation status', () => {
       message: '', completed: 0, total: 0, lastError: 'Steam helper unavailable',
     })).toContain('Steam helper unavailable');
   });
+
+  it('keeps degraded event listeners visible after startup succeeds', () => {
+    expect(operationMessage('Library is ready', null, ['library-changed']))
+      .toBe('Library is ready · Live updates unavailable: library-changed');
+  });
 });
