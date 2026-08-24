@@ -5,9 +5,11 @@
   import { open, save as saveDialog } from '@tauri-apps/plugin-dialog';
   import { onMount, tick } from 'svelte';
   import { completionPercent, sourceDescription, sourceLabel } from './library';
+  import { operationMessage } from './operation';
   import { cloneSettings, notificationPresentation, settingsChanged } from './settings';
   import defaultAvatar from '../../app/resources/img/avatar.png';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
+  import GameConfigDialog from './components/GameConfigDialog.svelte';
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
@@ -48,7 +50,6 @@
   let installingUpdate = false;
   let gameMenuElement: HTMLElement;
   let avatarMenuElement: HTMLElement;
-  let gameConfigElement: HTMLElement;
   let menuReturnFocus: HTMLElement | null = null;
   let gameConfigReturnFocus: HTMLElement | null = null;
   let confirmationReturnFocus: HTMLElement | null = null;
@@ -386,12 +387,7 @@
   }
 
   function displayedStatus() {
-    if (operation?.kind) {
-      return operation.total > 0
-        ? `${operation.message.replace(/…$/, '')} ${operation.completed} of ${operation.total}`
-        : operation.message;
-    }
-    return operation?.lastError ? `${status} · Last background error: ${operation.lastError}` : status;
+    return operationMessage(status, operation);
   }
 
   async function addSource(kind: SourceKind) {
@@ -574,13 +570,11 @@
     await save();
   }
 
-  async function configureGame(game: GameSummary) {
+  function configureGame(game: GameSummary) {
     gameConfigReturnFocus = menuReturnFocus;
     closeGameMenu();
     const config = settings?.gameLaunchConfigs[game.gameId];
     gameConfig = { game, executable: config?.executable ?? '', arguments: config?.arguments ?? '' };
-    await tick();
-    gameConfigElement?.querySelector<HTMLElement>('input, button')?.focus();
   }
 
   function closeGameConfig() {
@@ -588,26 +582,6 @@
     const target = gameConfigReturnFocus;
     gameConfigReturnFocus = null;
     void tick().then(() => target?.focus());
-  }
-
-  function handleDialogKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeGameConfig();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const items = Array.from(gameConfigElement.querySelectorAll<HTMLElement>('input, button:not(:disabled)'));
-    if (!items.length) return;
-    const first = items[0];
-    const last = items.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 
   async function chooseGameExecutable() {
@@ -1090,13 +1064,6 @@
   <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} busy={confirmationBusy} onConfirm={runConfirmedAction} onCancel={cancelConfirmation} />
 {/if}
 {#if gameConfig}
-  <div class="dialog-overlay" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeGameConfig(); }}>
-    <div bind:this={gameConfigElement} class="game-config-dialog" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="game-config-title" onkeydown={handleDialogKeydown}>
-      <h2 id="game-config-title">Launch {gameConfig.game.name}</h2>
-      <label><span>Executable</span><div><input readonly value={gameConfig.executable} placeholder="Choose an .exe, .bat, or .cmd file" /><button onclick={chooseGameExecutable}>Browse</button></div></label>
-      <label><span>Launch arguments</span><input bind:value={gameConfig.arguments} placeholder="Optional" /></label>
-      <div class="dialog-actions"><button onclick={closeGameConfig}>Cancel</button><button onclick={saveGameConfig} disabled={!gameConfig.executable}>Save</button></div>
-    </div>
-  </div>
+  <GameConfigDialog gameName={gameConfig.game.name} bind:executable={gameConfig.executable} bind:launchArguments={gameConfig.arguments} onBrowse={chooseGameExecutable} onSave={saveGameConfig} onCancel={closeGameConfig} />
 {/if}
 <StatusBar busy={scanning || Boolean(operation?.kind)} message={displayedStatus()} />
