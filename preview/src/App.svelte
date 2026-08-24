@@ -243,6 +243,21 @@
     games = await invoke<GameSummary[]>('list_games');
   }
 
+  type OpenGameRequest = { sourceId: string; gameId: string; achievementId: string };
+
+  async function consumeOpenGameRequest(fallback?: OpenGameRequest) {
+    const pending = await invoke<OpenGameRequest | null>('take_pending_open_game').catch(() => null);
+    const request = pending ?? fallback;
+    if (!request) return;
+    await refresh();
+    const game = games.find((item) => item.gameId === request.gameId && item.sourceId === request.sourceId)
+      ?? games.find((item) => item.gameId === request.gameId);
+    if (game) {
+      view = 'library';
+      await openGame(game, request.achievementId);
+    }
+  }
+
   async function scan(establishBaseline = false) {
     scanning = true;
     status = 'Scanning configured sources…';
@@ -538,12 +553,10 @@
       cleanup.push(await listen<{ completed: number; total: number }>('scan-progress', ({ payload }) => {
         status = `Scanning ${payload.completed} of ${payload.total}`;
       }));
-      cleanup.push(await listen<{ sourceId: string; gameId: string; achievementId: string }>('open-game', async ({ payload }) => {
-        await refresh();
-        const game = games.find((item) => item.gameId === payload.gameId && item.sourceId === payload.sourceId)
-          ?? games.find((item) => item.gameId === payload.gameId);
-        if (game) { view = 'library'; await openGame(game, payload.achievementId); }
+      cleanup.push(await listen<OpenGameRequest>('open-game', ({ payload }) => {
+        void consumeOpenGameRequest(payload);
       }));
+      await consumeOpenGameRequest();
       try {
         await invoke('import_legacy');
         settings = await invoke<AppSettings>('load_settings');
