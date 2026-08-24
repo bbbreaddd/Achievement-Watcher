@@ -38,6 +38,7 @@ struct AppState {
     watcher: Mutex<Option<RecommendedWatcher>>,
     awaiting_overlay: Mutex<HashSet<i64>>,
     current_overlay: Mutex<Option<NotificationEvent>>,
+    notification_dispatch: Mutex<()>,
     pending_open_game: Mutex<Option<OpenGameRequest>>,
     launched_games: Mutex<HashSet<String>>,
     game_bar: game_bar::GameBarBridge,
@@ -3173,7 +3174,20 @@ fn start_registry_monitor(app: AppHandle) {
     });
 }
 
+fn start_notification_retry_monitor(app: AppHandle) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            let state = app.state::<AppState>();
+            if let Err(message) = dispatch_pending(&app, &state) {
+                notification_log(&state, &format!("Notification retry: {message}"));
+            }
+        }
+    });
+}
+
 fn dispatch_pending(app: &AppHandle, state: &State<'_, AppState>) -> CommandResult<()> {
+    let _dispatch = state.notification_dispatch.lock().map_err(lock_error)?;
     let settings = state
         .store
         .lock()
@@ -3647,6 +3661,7 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 awaiting_overlay: Mutex::new(HashSet::new()),
                 current_overlay: Mutex::new(None),
+                notification_dispatch: Mutex::new(()),
                 pending_open_game: Mutex::new(None),
                 launched_games: Mutex::new(HashSet::new()),
                 game_bar: game_bar::GameBarBridge::start(),
@@ -3697,6 +3712,7 @@ pub fn run() {
             start_steam_monitor(app.handle().clone());
             start_process_monitor(app.handle().clone());
             start_registry_monitor(app.handle().clone());
+            start_notification_retry_monitor(app.handle().clone());
             notification_log(
                 &app.state::<AppState>(),
                 concat!("application started, version ", env!("CARGO_PKG_VERSION")),
