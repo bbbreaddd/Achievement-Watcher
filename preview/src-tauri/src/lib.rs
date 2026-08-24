@@ -717,7 +717,10 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
         }
         if game.icon.is_none()
             && game.source_kind.is_some_and(source_uses_steam_metadata)
-            && game.game_id.chars().all(|character| character.is_ascii_digit())
+            && game
+                .game_id
+                .chars()
+                .all(|character| character.is_ascii_digit())
         {
             game.icon = Some(format!(
                 "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
@@ -1421,14 +1424,19 @@ fn scan_sources(
                 && steam_account_matches(settings.steam_account_id.as_deref(), &account_id)
             {
                 scanned_games.insert(game_id.clone());
-                let _ = sync_steam_game(
+                if let Err(message) = sync_steam_game(
                     &app,
                     &state,
                     location,
                     &account_id,
                     &game_id,
                     establish_baseline.unwrap_or(false),
-                );
+                ) {
+                    notification_log(
+                        &state,
+                        &format!("Steam scan skipped app {game_id}: {message}"),
+                    );
+                }
             }
         }
         if settings.steam_library_mode == "installed" {
@@ -1445,8 +1453,14 @@ fn scan_sources(
                 .unwrap_or_default()
                 .to_owned();
             for game_id in steam::installed_app_ids(location) {
-                if scanned_games.insert(game_id.clone()) {
-                    let _ = sync_steam_game(&app, &state, location, &account_id, &game_id, true);
+                if scanned_games.insert(game_id.clone())
+                    && let Err(message) =
+                        sync_steam_game(&app, &state, location, &account_id, &game_id, true)
+                {
+                    notification_log(
+                        &state,
+                        &format!("Steam installed scan skipped app {game_id}: {message}"),
+                    );
                 }
             }
         } else if settings.steam_library_mode == "owned" {
@@ -1467,9 +1481,14 @@ fn scan_sources(
                         if let Ok(store) = state.store.lock() {
                             let _ = store.save_game_metadata(&game_id, &name, icon.as_deref());
                         }
-                        if scanned_games.insert(game_id.clone()) {
-                            let _ =
-                                sync_steam_game(&app, &state, location, account_id, &game_id, true);
+                        if scanned_games.insert(game_id.clone())
+                            && let Err(message) =
+                                sync_steam_game(&app, &state, location, account_id, &game_id, true)
+                        {
+                            notification_log(
+                                &state,
+                                &format!("Steam owned scan skipped app {game_id}: {message}"),
+                            );
                         }
                     }
                 }
@@ -1485,8 +1504,15 @@ fn scan_sources(
         .collect();
     let files = source::discover_files(&active_locations);
     let total = files.len() + registry_count;
+    let mut processed = registry_count;
     for (index, path) in files.into_iter().enumerate() {
-        process_path(&app, &state, &path, establish_baseline.unwrap_or(false))?;
+        match process_path(&app, &state, &path, establish_baseline.unwrap_or(false)) {
+            Ok(()) => processed += 1,
+            Err(message) => notification_log(
+                &state,
+                &format!("Source scan skipped {}: {message}", path.display()),
+            ),
+        }
         let _ = app.emit(
             "scan-progress",
             serde_json::json!({ "completed": registry_count + index + 1, "total": total }),
@@ -1495,7 +1521,7 @@ fn scan_sources(
     configure_watcher(&app, &state, &settings)?;
     dispatch_pending(&app, &state)?;
     let _ = app.emit("library-changed", ());
-    Ok(total)
+    Ok(processed)
 }
 
 fn sync_registry_sources(
