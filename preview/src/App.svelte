@@ -50,6 +50,7 @@
   let diagnosticData: { appVersion: string; observationCount: number; gameCount: number; enabledSourceCount: number; missingSourceCount: number; pendingNotifications: number; failedNotifications: number; recentErrors: string[]; notificationLog: string; watchers: Array<{ name: string; enabled: boolean; lastHeartbeatAt: number; lastWorkAt?: number; lastSuccessAt?: number; lastError?: string }> } | null = null;
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
+  let maximized = false;
   let gameMenuElement: HTMLElement;
   let avatarMenuElement: HTMLElement;
   let menuReturnFocus: HTMLElement | null = null;
@@ -72,8 +73,34 @@
     document.documentElement.lang = 'en';
   }
 
-  function toggleMaximize() {
-    void appWindow.toggleMaximize();
+  async function runWindowAction(label: string, action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      status = `Could not ${label} the window: ${String(error)}`;
+    }
+  }
+
+  async function toggleMaximize() {
+    await runWindowAction('resize', () => appWindow.toggleMaximize());
+    maximized = await appWindow.isMaximized().catch(() => maximized);
+  }
+
+  function closeWindow() {
+    const close = () => runWindowAction('close', () => appWindow.close());
+    if (view === 'settings' && settingsDirty()) {
+      requestConfirmation(
+        'Discard settings changes?',
+        'Your unsaved settings will be discarded before the window closes.',
+        'Discard and close',
+        async () => {
+          await cancelSettings();
+          await close();
+        },
+      );
+      return;
+    }
+    void close();
   }
 
   function hasSteamAppId(game: GameSummary) {
@@ -775,6 +802,13 @@
     const cleanup: Array<() => void> = [];
     void initializeApp();
     void consumeOpenGameRequest();
+    void appWindow.isMaximized().then((value) => maximized = value).catch(() => undefined);
+    void appWindow.onResized(async () => {
+      maximized = await appWindow.isMaximized().catch(() => maximized);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else cleanup.push(unlisten);
+    }).catch(() => undefined);
     const register = async (event: string, handler: Parameters<typeof listen>[1]) => {
       try {
         const unlisten = await listen(event, handler);
@@ -810,10 +844,11 @@
 <TitleBar
   {scanning}
   settingsActive={view === 'settings'}
-  onMinimize={() => { void appWindow.minimize(); }}
+  {maximized}
+  onMinimize={() => { void runWindowAction('minimize', () => appWindow.minimize()); }}
   onSettings={openSettings}
-  onMaximize={toggleMaximize}
-  onClose={() => { void appWindow.close(); }}
+  onMaximize={() => { void toggleMaximize(); }}
+  onClose={closeWindow}
 />
 
 <main>
