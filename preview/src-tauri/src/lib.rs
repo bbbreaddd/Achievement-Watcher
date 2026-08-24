@@ -3201,6 +3201,19 @@ fn dispatch_pending(app: &AppHandle, state: &State<'_, AppState>) -> CommandResu
         .pending_events(Utc::now().timestamp(), 25)
         .map_err(error)?;
     for event in events {
+        if !settings.notification_enabled
+            || (event.kind == aw_core::NotificationKind::Progress && !settings.notify_on_progress)
+        {
+            if event.id >= 0 {
+                state
+                    .store
+                    .lock()
+                    .map_err(lock_error)?
+                    .record_delivery(event.id, "disabled", Ok(()))
+                    .map_err(error)?;
+            }
+            continue;
+        }
         if settings.game_bar_enabled
             && (!settings.game_bar_fullscreen_only || foreground_is_fullscreen())
         {
