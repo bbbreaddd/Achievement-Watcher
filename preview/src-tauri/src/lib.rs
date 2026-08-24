@@ -1144,16 +1144,36 @@ fn close_achievement_overlay(app: AppHandle) -> CommandResult<()> {
 
 #[tauri::command]
 fn launch_game(app: AppHandle, state: State<'_, AppState>, game_id: String) -> CommandResult<()> {
-    let settings = state
-        .store
-        .lock()
-        .map_err(lock_error)?
-        .load_settings()
-        .map_err(error)?;
-    let config = settings
-        .game_launch_configs
-        .get(&game_id)
-        .ok_or_else(|| "Configure this game's executable first".to_string())?;
+    let (settings, has_official_steam_source) = {
+        let store = state.store.lock().map_err(lock_error)?;
+        let settings = store.load_settings().map_err(error)?;
+        let configured: BTreeMap<_, _> = settings
+            .source_locations
+            .iter()
+            .map(|location| (location.id.as_str(), location.kind))
+            .collect();
+        let has_official_steam_source =
+            store
+                .observations()
+                .map_err(error)?
+                .iter()
+                .any(|observation| {
+                    observation.game_id == game_id
+                        && configured
+                            .get(observation.source_id.as_str())
+                            .copied()
+                            .or_else(|| inferred_source_kind(&observation.source_id))
+                            == Some(aw_core::SourceKind::Steam)
+                });
+        (settings, has_official_steam_source)
+    };
+    let Some(config) = settings.game_launch_configs.get(&game_id) else {
+        if has_official_steam_source && game_id.chars().all(|character| character.is_ascii_digit())
+        {
+            return launch_steam_uri(&game_id);
+        }
+        return Err("Configure this game's executable first".into());
+    };
     if !config.executable.is_file() {
         return Err(format!(
             "Game executable was not found: {}",
@@ -1215,6 +1235,22 @@ fn launch_game(app: AppHandle, state: State<'_, AppState>, game_id: String) -> C
         }
     });
     Ok(())
+}
+
+#[cfg(windows)]
+fn launch_steam_uri(game_id: &str) -> CommandResult<()> {
+    use std::os::windows::process::CommandExt;
+    Command::new("explorer.exe")
+        .arg(format!("steam://run/{game_id}"))
+        .creation_flags(0x0800_0000)
+        .spawn()
+        .map_err(error)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn launch_steam_uri(_game_id: &str) -> CommandResult<()> {
+    Err("Launching Steam games is available only on Windows".into())
 }
 
 fn split_command_line(value: &str) -> Vec<String> {
