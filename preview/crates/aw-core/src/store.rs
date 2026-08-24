@@ -161,6 +161,9 @@ impl Store {
                 .optional()?;
 
             let kind = match previous {
+                None if !establish_baseline && observation.achieved => {
+                    Some(NotificationKind::Unlock)
+                }
                 None => None,
                 Some(_) if establish_baseline => None,
                 Some((false, _)) if observation.achieved => Some(NotificationKind::Unlock),
@@ -660,6 +663,24 @@ mod tests {
         assert!(
             store
                 .record_observations(&[observation(true, 0)], false)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn first_seen_live_unlock_is_not_lost() {
+        let mut store = Store::open_memory().unwrap();
+        let events = store
+            .record_observations(&[observation(true, 0)], false)
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, NotificationKind::Unlock);
+
+        let mut baseline_store = Store::open_memory().unwrap();
+        assert!(
+            baseline_store
+                .record_observations(&[observation(true, 0)], true)
                 .unwrap()
                 .is_empty()
         );

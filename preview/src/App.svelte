@@ -282,7 +282,7 @@
       enabled: true,
       notify: true,
     }];
-    if (await save()) await scan(false);
+    if (await save()) await scan(true);
   }
 
   async function save() {
@@ -337,7 +337,7 @@
     settings.sourcesInitialized = true;
     if (await save()) {
       status = additions.length ? `Found ${additions.length} achievement folder${additions.length === 1 ? '' : 's'}` : 'No new achievement folders found';
-      if (scanAfter && additions.length) await scan(false);
+      if (scanAfter && additions.length) await scan(true);
     }
   }
 
