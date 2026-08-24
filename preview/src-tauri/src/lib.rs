@@ -716,10 +716,8 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
             }
         }
         if game.icon.is_none()
-            && game
-                .game_id
-                .chars()
-                .all(|character| character.is_ascii_digit())
+            && game.source_kind.is_some_and(source_uses_steam_metadata)
+            && game.game_id.chars().all(|character| character.is_ascii_digit())
         {
             game.icon = Some(format!(
                 "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
@@ -760,6 +758,16 @@ fn source_priority(kind: aw_core::SourceKind) -> u8 {
         aw_core::SourceKind::LumaPlay => 6,
         aw_core::SourceKind::WatchdogCache => 7,
     }
+}
+
+fn source_uses_steam_metadata(kind: aw_core::SourceKind) -> bool {
+    matches!(
+        kind,
+        aw_core::SourceKind::Steam
+            | aw_core::SourceKind::SteamEmulator
+            | aw_core::SourceKind::GreenLuma
+            | aw_core::SourceKind::WatchdogCache
+    )
 }
 
 fn source_kind_enabled(settings: &AppSettings, kind: aw_core::SourceKind) -> bool {
@@ -1893,7 +1901,9 @@ fn refresh_metadata(
             }
             continue;
         }
-        if !game_id.chars().all(|character| character.is_ascii_digit()) {
+        if !source_uses_steam_metadata(source_kind)
+            || !game_id.chars().all(|character| character.is_ascii_digit())
+        {
             continue;
         }
         let (needs_game, needs_achievements, needs_global_percentages) = {
@@ -3690,7 +3700,8 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::emulator_config_value;
+    use super::{emulator_config_value, source_uses_steam_metadata};
+    use aw_core::SourceKind;
 
     #[test]
     fn reads_redirected_emulator_save_configuration() {
@@ -3703,5 +3714,13 @@ mod tests {
             emulator_config_value(content, &["playername"]).as_deref(),
             Some("green")
         );
+    }
+
+    #[test]
+    fn steam_artwork_is_not_assumed_for_other_numeric_catalogs() {
+        assert!(source_uses_steam_metadata(SourceKind::Steam));
+        assert!(source_uses_steam_metadata(SourceKind::SteamEmulator));
+        assert!(!source_uses_steam_metadata(SourceKind::Gog));
+        assert!(!source_uses_steam_metadata(SourceKind::Epic));
     }
 }
