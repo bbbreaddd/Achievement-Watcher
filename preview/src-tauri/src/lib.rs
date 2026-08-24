@@ -1449,6 +1449,20 @@ fn scan_sources(
                 }
             }
         }
+        // Installed/owned enumeration can contain hundreds of games. Existing
+        // observations are refreshed by the running-game monitor or their
+        // UserGameStats file above, so avoid launching a helper process for
+        // every unchanged title whenever the library is opened.
+        if let Ok(store) = state.store.lock()
+            && let Ok(observations) = store.observations()
+        {
+            scanned_games.extend(
+                observations
+                    .into_iter()
+                    .filter(|observation| observation.source_id == location.id)
+                    .map(|observation| observation.game_id),
+            );
+        }
         if settings.steam_library_mode == "installed" {
             let detected_accounts = steam::accounts(&settings.source_locations);
             let account_id = settings
