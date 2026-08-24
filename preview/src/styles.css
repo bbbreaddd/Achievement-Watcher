@@ -33,13 +33,17 @@ section { max-width: 1180px; margin: 0 auto; }
 #user-info ul { margin: 6px 0 0; padding: 0; }
 #user-info li { display: inline-block; margin: 0 5px; color: #bfc9d3; font-size: 12px; }
 #user-info li:first-child { margin-left: 0; }
-.library-tools { width: 91.85%; min-height: 42px; display: flex; align-items: center; gap: 8px; margin: 0 auto; }
-#sort-box { display: flex; margin-right: auto; }
+.library-tools { position: absolute; z-index: 3; top: 105px; left: 4.075%; width: 91.85%; height: 30px; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.library-tools > * { pointer-events: auto; }
+#sort-box { display: flex; margin-left: auto; }
 #sort-box button { min-width: 34px; padding: 5px; border: 0; background: transparent; color: #9ca9b7; font: 18px OpenSans, sans-serif; }
 #sort-box button:hover, #sort-box button.active { color: #fff; background: transparent; text-shadow: 0 0 20px #fff; }
-#search-bar { height: 30px; display: flex; align-items: center; border: 1px solid #354b65; background: #15202d; }
-#search-bar span { padding-left: 8px; color: #7890aa; font-size: 17px; }
-#search-bar input { width: 185px; height: 28px; padding: 3px 8px; border: 0; outline: 0; color: #d9dfe4; background: transparent; }
+#search-bar { position: relative; height: 30px; display: flex; align-items: center; border: 1px solid #24374c; background: #15202d; }
+#search-bar span { position: absolute; z-index: 1; left: 10px; color: #d9dfe4; font-size: 14px; pointer-events: none; }
+#search-bar input { width: 35px; height: 28px; padding: 3px 9px 3px 31px; border: 0; outline: 0; color: transparent; background: transparent; cursor: pointer; transition: width .35s ease; }
+#search-bar input:focus, #search-bar input.has { width: 140px; color: #d9dfe4; cursor: text; box-shadow: 0 0 8px 2px #c6d4df80; }
+#search-bar input::placeholder { color: transparent; }
+#search-bar input:focus::placeholder { color: #73879b; }
 .library-tools select { height: 30px; padding: 3px 7px; border: 1px solid #354b65; border-radius: 0; color: #d9dfe4; background: #15202d; }
 .library-tools .refresh { min-width: 30px; min-height: 30px; padding: 0; border-color: #354b65; background: #213247; font-size: 18px; }
 #game-list { width: 91.85%; min-height: 0; flex: 1; margin: 0 auto; padding: 20px; overflow-x: hidden; overflow-y: auto; border: 1px solid #24374c; background: #15202d; }
@@ -101,22 +105,26 @@ section { max-width: 1180px; margin: 0 auto; }
 .detail-trophies { display: flex; gap: 8px; margin: 12px 0 0 !important; padding: 10px 13px; border-radius: 3px; background: #15202db5; list-style: none; font: 12px OpenSans, sans-serif; }
 .detail-trophies li { margin: 0; }
 .activity-pill { margin-top: 12px; padding: 10px 16px; border-radius: 3px; background: #15202db5; color: #aab7c4; font: 12px OpenSans, sans-serif; }
-.achievement-tools { display: flex; justify-content: flex-end; gap: 10px; margin: 10px 0 20px; }
+.achievement-tools { position: fixed !important; z-index: 4 !important; bottom: 15px; left: 15px; display: flex; gap: 10px; margin: 0; }
 .achievement-sort { display: flex; }
 .achievement-sort button { min-width: 34px; padding: 3px; border: 0; background: transparent; color: #8d9cab; font: 17px OpenSans, sans-serif; }
 .achievement-sort button.active { color: #fff; text-shadow: 0 0 20px #fff; }
-#achievement-search { height: 30px; display: flex; align-items: center; border: 1px solid #354b65; background: #15202d; }
-#achievement-search span { padding-left: 8px; color: #7890aa; font-size: 17px; }
-#achievement-search input { width: 190px; height: 28px; padding: 3px 8px; border: 0; outline: 0; color: #d9dfe4; background: transparent; }
+#achievement-search { position: relative; height: 30px; display: flex; align-items: center; border: 1px solid #6f7f90; background: #15202d; }
+#achievement-search span { position: absolute; z-index: 1; left: 10px; color: #d9dfe4; pointer-events: none; }
+#achievement-search input { width: 35px; height: 28px; padding: 3px 9px 3px 31px; border: 0; outline: 0; color: transparent; background: transparent; cursor: pointer; transition: width .35s ease; }
+#achievement-search input:focus, #achievement-search input.has { width: 202px; color: #d9dfe4; cursor: text; box-shadow: 0 4px 8px #0003, 0 6px 20px #0003; }
+#achievement-search input::placeholder { color: transparent; }
+#achievement-search input:focus::placeholder { color: #73879b; }
 .back-button { position: absolute; top: 25px; right: 0; min-width: 50px; border: 0; color: #67c1f5; background: #67c1f533; box-shadow: 0 4px 8px #0003, 0 6px 20px #0003; font-size: 26px; }
 .back-button:hover { color: #fff; background: #417a9b; }
 .scroll-top { position: sticky; left: calc(100% - 42px); bottom: 14px; width: 38px; min-width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; background: #263b52; color: #b9c8d8; box-shadow: 0 3px 10px #0008; }
 .achievement-group { max-width: none; margin: 0 0 22px; }
 .achievement-group > h3 { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 2px solid #d9dfe4; font: 700 20px OpenSans, sans-serif; }
 .achievement-group > h3 small { font: 14px OpenSans, sans-serif; }
-.achievement-group > h3 button { width: 30px; min-width: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #d9dfe4; font-size: 25px; line-height: 30px; transition: transform .2s; }
-.achievement-group > h3 button.active { transform: rotate(90deg); }
-.achievement-group > h3 button:hover { background: #ffffff20; }
+.achievement-group > h3 > .achievement-sort { margin-left: auto; margin-right: 5px; }
+.achievement-group > h3 > .collapse-toggle { width: 30px; min-width: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #d9dfe4; font-size: 25px; line-height: 30px; transition: transform .2s; }
+.achievement-group > h3 > .collapse-toggle.active { transform: rotate(90deg); }
+.achievement-group > h3 > .collapse-toggle:hover { background: #ffffff20; }
 .achievement-group ul { margin: 20px 0 0; padding: 0; }
 .achievement-group li { display: block; width: 100%; margin: 10px 0; padding: 10px 20px; background: #15202db5; }
 .achievement-row { min-height: 66px; display: flex; align-items: center; gap: 0; padding: 0; border: 0; color: #8e9aa6; }
