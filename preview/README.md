@@ -25,6 +25,10 @@ npm run tauri build
 
 The first scan establishes a quiet baseline so existing achievements do not generate a notification storm. Supported preview inputs include common Steam-emulator JSON/INI formats, GreenLuma-configured directories, SSE binary files, and RPCS3 `TROPUSR.DAT` files. Notifications are persisted before delivery and retry through a native Windows fallback if the styled renderer does not acknowledge startup.
 
+Fresh installations enable achievement monitoring and notifications. Screenshots, the in-game achievement overlay, OBS replay capture, Xbox Game Bar, WebSocket, and GNTP remain off until enabled. Existing settings are preserved during upgrades. Network metadata is optional, and newly downloaded game artwork is cached under application data so the local copy is preferred afterward.
+
+The Diagnostics page reports notification failures and a heartbeat for each background watcher. A watcher marked **not needed** is disabled by the current settings; an error remains visible until that watcher completes a successful check.
+
 ### Fast Windows iteration
 
 When the repository is opened through a mapped Linux/Samba drive, the Windows helper stages the buildable source under `%LOCALAPPDATA%\AchievementWatcherBuild\source` and keeps Cargo artifacts on the same local disk. During development it synchronizes changes from the repository every 750 ms, so Vite hot reload still follows edits made on the mapped drive. This avoids Vite stalls, thousands of compiler reads and writes crossing the share, and Linux/Windows artifacts sharing one `target` directory.
