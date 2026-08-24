@@ -50,6 +50,7 @@
   let diagnosticData: { appVersion: string; observationCount: number; gameCount: number; enabledSourceCount: number; missingSourceCount: number; pendingNotifications: number; failedNotifications: number; recentErrors: string[]; notificationLog: string; watchers: Array<{ name: string; enabled: boolean; lastHeartbeatAt: number; lastWorkAt?: number; lastSuccessAt?: number; lastError?: string }> } | null = null;
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
+  let savingSettings = false;
   let maximized = false;
   let gameMenuElement: HTMLElement;
   let avatarMenuElement: HTMLElement;
@@ -87,6 +88,10 @@
   }
 
   function closeWindow() {
+    if (savingSettings) {
+      status = 'Wait for settings to finish saving before closing the window';
+      return;
+    }
     const close = () => runWindowAction('close', () => appWindow.close());
     if (view === 'settings' && settingsDirty()) {
       requestConfirmation(
@@ -504,9 +509,15 @@
   }
 
   async function acceptSettings() {
-    if (!(await persistSettings())) return;
-    settingsSnapshot = null;
-    view = 'library';
+    if (savingSettings) return;
+    savingSettings = true;
+    try {
+      if (!(await persistSettings())) return;
+      settingsSnapshot = null;
+      view = 'library';
+    } finally {
+      savingSettings = false;
+    }
   }
 
   async function cancelSettings() {
@@ -759,7 +770,7 @@
     } else if (gameConfig) {
       closeGameConfig();
     } else if (view === 'settings') {
-      void cancelSettings();
+      if (!savingSettings) void cancelSettings();
     } else if (selectedGame) {
       selectedGame = null;
     }
@@ -914,8 +925,8 @@
       <div class="settings-header"><i class="fas fa-cog"></i><h2 id="settings-title">{t('settings.title', 'Settings')}</h2></div>
       <div class="settings-container">
       <nav class="settings-nav" aria-label="Settings categories">
-        {#each [['general','fas fa-tools','General'],['notification','fas fa-bell','Notifications'],['souvenir','fas fa-camera','Captures'],['folder','far fa-folder','Folders'],['source','fas fa-file-import','Sources'],['advanced','fas fa-plug','Integrations'],['debug','fas fa-bug','Diagnostics']] as tab}
-          <button class:active={settingsTab === tab[0]} aria-current={settingsTab === tab[0] ? 'page' : undefined} onclick={() => settingsTab = tab[0] as typeof settingsTab}><i class={tab[1]} aria-hidden="true"></i>{tab[2]}</button>
+        {#each [['general','fas fa-tools','General'],['notification','fas fa-bell','Notifications'],['souvenir','fas fa-camera','Captures'],['folder','far fa-folder','Folders'],['source','fas fa-file-import','Accounts & sources'],['advanced','fas fa-plug','Integrations'],['debug','fas fa-bug','Diagnostics']] as tab}
+          <button class:active={settingsTab === tab[0]} aria-current={settingsTab === tab[0] ? 'page' : undefined} onclick={() => { settingsTab = tab[0] as typeof settingsTab; if (tab[0] === 'debug') void loadDiagnostics(); }}><i class={tab[1]} aria-hidden="true"></i>{tab[2]}</button>
         {/each}
       </nav>
       <div class="settings-content">
@@ -1010,12 +1021,13 @@
       {:else if settingsTab === 'folder'}
       <div class="settings-group">
         <h3>Achievement folders</h3>
+        <p class="settings-help">Achievement Watcher finds common locations automatically. Add a folder only when a source is stored somewhere unusual.</p>
         <div class="sources">
           {#each settings.sourceLocations as source}
             <div class="source"><label><input type="checkbox" bind:checked={source.enabled} onchange={save} />{sourceLabel(source.kind)}</label><label title="Allow unlock notifications and souvenir actions from this folder"><input type="checkbox" bind:checked={source.notify} onchange={save} disabled={!source.enabled} />Notify</label><code title={source.path}>{source.path}</code><button aria-label={`Remove ${source.path}`} onclick={() => removeSource(source.id)}>Remove</button></div>
           {:else}<p class="muted">No live achievement folders were detected. Cached games can still be browsed, but unlocks are not monitored.</p>{/each}
         </div>
-        <div class="source-actions"><button onclick={() => detectSources(true, false)}>Smart Find</button><button onclick={() => addSource('steam_emulator')}>Add Steam emulator folder</button><button onclick={() => addSource('rpcs3')}>Add RPCS3 folder</button><button onclick={() => addSource('epic')}>Add Epic emulator folder</button><button onclick={() => addSource('gog')}>Add GOG emulator folder</button></div>
+        <div class="source-actions"><button title="Search every local drive for supported achievement folders" onclick={() => detectSources(true, false)}>Search all drives</button><button onclick={() => addSource('steam_emulator')}>Add Steam emulator folder</button><button onclick={() => addSource('rpcs3')}>Add RPCS3 folder</button><button onclick={() => addSource('epic')}>Add Epic emulator folder</button><button onclick={() => addSource('gog')}>Add GOG emulator folder</button></div>
       </div>
       {:else if settingsTab === 'source'}
       <div class="settings-group">
@@ -1023,18 +1035,22 @@
         <label class="check"><input type="checkbox" bind:checked={settings.steamEnabled} onchange={save} /> Import achievements from the signed-in Steam client</label>
         {#if settings.steamEnabled}<label class="field"><span>Games to display</span><select bind:value={settings.steamLibraryMode} onchange={save}><option value="played">Games with local Steam stats</option><option value="installed">Installed</option><option value="owned">Owned (public profile or API key)</option></select></label><label class="check"><input type="checkbox" bind:checked={settings.steamPublicFallback} onchange={save} /> Use the public Steam profile when client data is unavailable</label>{#if steamAccounts.length}<label class="field"><span>Steam account</span><select bind:value={settings.steamAccountId} onchange={save}><option value={undefined}>Most recently used account</option>{#each steamAccounts as account}<option value={account.accountId}>{account.name || account.steamId}{account.mostRecent ? ' (recent)' : ''}</option>{/each}</select></label>{:else}<label class="field"><span>Steam account</span><input bind:value={settings.steamAccountId} onchange={save} placeholder="Detected automatically" /></label>{/if}{/if}
       </div>
-      <div class="settings-group">
+      {#if settings.steamEnabled}<div class="settings-group">
         <h3>Steam Web API fallback</h3>
         <p class="settings-help">Optional fallback for profiles that cannot be read through the signed-in Steam client. Leave blank for local-only operation.</p>
         <label class="field"><span>Web API key</span><input type="password" bind:value={settings.steamApiKey} onchange={save} autocomplete="off" placeholder="Optional" /></label>
+      </div>{/if}
+      <div class="settings-group">
+        <h3>Official GOG Galaxy</h3>
+        <label class="check"><input type="checkbox" bind:checked={settings.gogGalaxyEnabled} onchange={save} /> Import achievements from GOG Galaxy's local database</label>
+        <p class="settings-help">Galaxy accounts and tokens stay inside GOG Galaxy. Achievement Watcher reads only the local gameplay database.</p>
       </div>
       <div class="settings-group">
-        <h3>Local achievement sources</h3>
+        <h3>Emulators and compatibility sources</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.steamEmulatorEnabled} onchange={save} /> Steam emulator saves</label>
         <label class="check"><input type="checkbox" bind:checked={settings.greenLumaEnabled} onchange={save} /> GreenLuma registry saves</label>
         <label class="check"><input type="checkbox" bind:checked={settings.rpcs3Enabled} onchange={save} /> RPCS3 trophies</label>
         <label class="check"><input type="checkbox" bind:checked={settings.epicEnabled} onchange={save} /> Nemirtingas Epic emulator</label>
-        <label class="check"><input type="checkbox" bind:checked={settings.gogGalaxyEnabled} onchange={save} /> GOG Galaxy local achievements</label>
         <label class="check"><input type="checkbox" bind:checked={settings.gogEnabled} onchange={save} /> Nemirtingas Galaxy emulator</label>
         <label class="check"><input type="checkbox" bind:checked={settings.lumaPlayEnabled} onchange={save} /> LumaPlay registry achievements</label>
         <label class="check"><input type="checkbox" bind:checked={settings.watchdogCacheEnabled} onchange={save} /> Original Achievement Watcher cache</label>
@@ -1071,7 +1087,7 @@
       </div>
       {/if}
       </div></div>
-      <div class="settings-footer"><div class="settings-notice"><span>Preview v{diagnosticData?.appVersion ?? '…'} ·</span><button onclick={() => invoke('open_project_page', { project: 'fork' })}>darktakayanagi/achievement-watcher</button><span>· Original v1.6.8 ·</span><button onclick={() => invoke('open_project_page', { project: 'original' })}>xan105/achievement-watcher</button></div><div><button onclick={cancelSettings}>{t('settings.common.cancel', 'Cancel')}</button><button class="primary" onclick={acceptSettings} disabled={!settingsDirty()}>{t('settings.common.save', 'Save')}</button></div></div>
+      <div class="settings-footer"><div class="settings-notice"><span>Preview v{diagnosticData?.appVersion ?? '…'} ·</span><button onclick={() => invoke('open_project_page', { project: 'fork' })}>darktakayanagi/achievement-watcher</button><span>· Original v1.6.8 ·</span><button onclick={() => invoke('open_project_page', { project: 'original' })}>xan105/achievement-watcher</button></div><div><button disabled={savingSettings} onclick={cancelSettings}>{t('settings.common.cancel', 'Cancel')}</button><button class="primary" onclick={acceptSettings} disabled={savingSettings || !settingsDirty()}>{savingSettings ? 'Saving…' : t('settings.common.save', 'Save')}</button></div></div>
       </div>
     </section>
   {/if}
