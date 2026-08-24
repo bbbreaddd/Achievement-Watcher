@@ -465,6 +465,13 @@
     return operationMessage(status, operation, liveUpdateErrors);
   }
 
+  function titleActivity() {
+    if (initializing) return 'Loading library…';
+    if (operation?.kind) return operation.message;
+    if (scanning) return 'Scanning achievements…';
+    return null;
+  }
+
   async function addSource(kind: SourceKind) {
     const selected = await open({ directory: true, multiple: false });
     if (!selected || !settings) return;
@@ -779,7 +786,17 @@
     } else if (gameConfig) {
       closeGameConfig();
     } else if (view === 'settings') {
-      if (!savingSettings) void cancelSettings();
+      if (savingSettings) return;
+      if (settingsDirty()) {
+        requestConfirmation(
+          'Discard settings changes?',
+          'Your unsaved settings will be discarded.',
+          'Discard changes',
+          cancelSettings,
+        );
+      } else {
+        void cancelSettings();
+      }
     } else if (selectedGame) {
       selectedGame = null;
     }
@@ -860,7 +877,7 @@
 <svelte:window onclick={() => { closeGameMenu(); closeAvatarMenu(); }} onkeydown={handleWindowKeydown} />
 
 <TitleBar
-  {scanning}
+  activity={titleActivity()}
   settingsActive={view === 'settings'}
   {maximized}
   onMinimize={() => { void runWindowAction('minimize', () => appWindow.minimize()); }}
