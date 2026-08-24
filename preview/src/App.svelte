@@ -290,6 +290,14 @@
     await save();
   }
 
+  async function restoreSteamName() {
+    const account = activeSteamAccount();
+    if (!settings || !account?.name) return;
+    settings.username = account.name;
+    settings.usernameCustomized = false;
+    await save();
+  }
+
   function achievementRows(achieved: boolean) {
     const term = achievementQuery.trim().toLowerCase();
     return achievements.filter((achievement) => achievement.achieved === achieved
@@ -933,7 +941,7 @@
       {#if settingsTab === 'general'}
       <div class="settings-group">
         <h3>Interface and library</h3>
-        <label class="field"><span>Display name</span><input bind:value={settings.username} onchange={() => { if (settings) settings.usernameCustomized = true; void save(); }} placeholder="Steam name" /></label>
+        <div class="field"><label for="display-name">Display name</label><input id="display-name" bind:value={settings.username} onchange={() => { if (settings) settings.usernameCustomized = true; void save(); }} placeholder="Steam name" />{#if activeSteamAccount()?.name && settings.username !== activeSteamAccount()?.name}<button type="button" title={`Restore ${activeSteamAccount()!.name}`} onclick={restoreSteamName}>Use Steam name</button>{/if}</div>
         <div class="field"><span>Profile avatar</span><button onclick={chooseAvatar}>{settings.profileAvatarPath ? 'Change' : 'Choose'}</button>{#if settings.profileAvatarPath}<button onclick={() => { if (settings) { settings.profileAvatarPath = undefined; avatarData = ''; void save(); } }}>Remove</button>{/if}</div>
         <label class="field"><span>Game thumbnails</span><select bind:value={settings.thumbnailPortrait} onchange={save}><option value={false}>Landscape</option><option value={true}>Portrait</option></select></label>
         <label class="check"><input type="checkbox" bind:checked={settings.showCachedGames} onchange={save} /> Show games that have cached information but no tracked progress</label>
