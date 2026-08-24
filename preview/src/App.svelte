@@ -1075,7 +1075,6 @@
         <h3>Updates</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.checkForUpdates} onchange={save} /> Check for new preview releases automatically</label>
         <div class="field"><span>Application updates</span><button onclick={() => checkUpdates(true)}>Check now</button></div>
-        <p class="settings-help">Updates use the regular NSIS installer. Downloaded installers are SHA-256 verified before they are opened.</p>
       </div>
       {:else if settingsTab === 'notification'}
       <div class="settings-group">
@@ -1123,15 +1122,15 @@
         {#if settings.screenshotEnabled}<label class="check nested"><input type="checkbox" bind:checked={settings.screenshotOverwrite} onchange={save} /> Replace an existing screenshot for the same achievement</label><div class="folder-setting"><span>Save location</span><code>{settings.screenshotDirectory ?? 'Application data / screenshots'}</code><button onclick={() => invoke('open_data_location', { location: 'screenshots' }).catch((error) => status = String(error))}>Open</button><button onclick={chooseScreenshotFolder}>Choose</button>{#if settings.screenshotDirectory}<button onclick={() => { if (settings) { settings.screenshotDirectory = undefined; void save(); } }}>Reset</button>{/if}</div>{/if}
       </div>
       <div class="settings-group">
-        <h3>OBS replay buffer</h3>
-        <label class="check"><input type="checkbox" bind:checked={settings.obsReplayEnabled} onchange={save} /> Save an OBS replay when an achievement unlocks</label>
+        <h3>Achievement clips</h3>
+        <label class="check"><input type="checkbox" bind:checked={settings.obsReplayEnabled} onchange={save} /> Record a clip when an achievement unlocks <small>(requires OBS Studio)</small></label>
         {#if settings.obsReplayEnabled}
-          <p class="settings-help">OBS is optional and must have its WebSocket server enabled. If OBS is closed or unavailable, notifications and screenshots continue normally.</p>
+          <p class="settings-help">Achievement clips use OBS Studio's replay buffer and WebSocket server. If OBS is closed or unavailable, notifications and screenshots continue normally.</p>
           <label class="field"><span>Host</span><input bind:value={settings.obsHost} onchange={save} /></label>
           <label class="field"><span>Port</span><input type="number" min="1" max="65535" bind:value={settings.obsPort} onchange={save} /></label>
           <label class="field"><span>Password</span><input type="password" bind:value={settings.obsPassword} onchange={save} autocomplete="off" /></label>
-          <label class="check nested"><input type="checkbox" bind:checked={settings.obsStartReplayBuffer} onchange={save} /> Start the replay buffer if OBS has not started it</label>
-          <div class="field"><span>Connection and replay</span><button onclick={() => invoke('test_obs', { settings }).then(() => status = 'OBS replay buffer saved').catch((error) => status = `OBS test failed: ${String(error)}`)}>Run test</button></div>
+          <label class="check nested"><input type="checkbox" bind:checked={settings.obsStartReplayBuffer} onchange={save} /> Start recording automatically when needed</label>
+          <div class="field"><span>Clip recording</span><button onclick={() => invoke('test_obs', { settings }).then(() => status = 'Test clip saved').catch((error) => status = `Clip test failed: ${String(error)}`)}>Run test</button></div>
         {/if}
       </div>
       {:else if settingsTab === 'folder'}
@@ -1197,7 +1196,7 @@
         <p class="settings-help">Fullscreen Focus Assist rules can suppress native Windows notifications. Custom desktop popups and the optional Game Bar companion use separate delivery paths.</p>
         <div class="field"><span>Scan all sources</span><button onclick={() => scan(false)} disabled={scanning}>Run scan</button></div>
         {#if settings.gameBarEnabled}<div class="field"><span>Xbox Game Bar</span><button onclick={() => invoke('test_game_bar', { settings }).then(() => status = 'Game Bar acknowledged the test').catch((error) => status = `Game Bar test failed: ${String(error)}`)}>Run test</button></div>{/if}
-        {#if settings.obsReplayEnabled}<div class="field"><span>OBS replay buffer</span><button onclick={() => invoke('test_obs', { settings }).then(() => status = 'OBS replay buffer saved').catch((error) => status = `OBS test failed: ${String(error)}`)}>Run test</button></div>{/if}
+        {#if settings.obsReplayEnabled}<div class="field"><span>Achievement clips</span><button onclick={() => invoke('test_obs', { settings }).then(() => status = 'Test clip saved').catch((error) => status = `Clip test failed: ${String(error)}`)}>Run test</button></div>{/if}
         <div class="field"><span>Runtime status</span><button onclick={loadDiagnostics}>Refresh</button></div>
         {#if diagnosticData}<div class="diagnostic-grid"><span>Version</span><strong>{diagnosticData.appVersion}</strong><span>Games</span><strong>{diagnosticData.gameCount}</strong><span>Achievement records</span><strong>{diagnosticData.observationCount}</strong><span>Enabled folders</span><strong>{diagnosticData.enabledSourceCount}</strong><span>Missing folders</span><strong class:warning={diagnosticData.missingSourceCount > 0}>{diagnosticData.missingSourceCount}</strong><span>Pending notifications</span><strong>{diagnosticData.pendingNotifications}</strong><span>Failed notifications</span><strong class:warning={diagnosticData.failedNotifications > 0}>{diagnosticData.failedNotifications}</strong></div>{#if diagnosticData.watchers.length}<div class="diagnostic multi"><span>Watcher health</span><div class="diagnostic-values">{#each diagnosticData.watchers as watcher}<code class:warning={Boolean(watcher.lastError)}>{watcher.name}: {watcher.enabled ? (watcher.lastError ? watcher.lastError : 'running') : 'not needed'} · checked {new Date(watcher.lastHeartbeatAt * 1000).toLocaleTimeString()}</code>{/each}</div></div>{/if}{#if diagnosticData.failedNotifications > 0}<div class="field"><span>Failed notification queue</span><button onclick={() => recoverFailedNotifications(false)}>Retry now</button><button onclick={(event) => requestConfirmation('Dismiss failed notifications?', 'The queued events will not be retried again.', 'Dismiss events', () => recoverFailedNotifications(true))}>Dismiss</button></div>{/if}{#if diagnosticData.recentErrors.length}<div class="diagnostic multi"><span>Recent delivery errors</span><div class="diagnostic-values">{#each diagnosticData.recentErrors as message}<code>{message}</code>{/each}</div></div>{/if}<div class="diagnostic"><span>Notification log</span><code>{diagnosticData.notificationLog}</code><button onclick={() => invoke('open_data_location', { location: 'notification_log' }).catch((error) => status = String(error))}>Open</button></div>{/if}
       </div>

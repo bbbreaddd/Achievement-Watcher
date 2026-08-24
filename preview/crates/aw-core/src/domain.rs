@@ -324,7 +324,7 @@ impl Default for AppSettings {
             custom_action_hide_window: true,
             notification_duration_percent: 100,
             notification_scale_percent: 100,
-            game_bar_enabled: false,
+            game_bar_enabled: true,
             game_bar_fullscreen_only: true,
             game_bar_token: random_token(),
             achievement_overlay_enabled: false,
@@ -402,7 +402,7 @@ mod tests {
             r#"{"notificationMode":"native_only","screenshotEnabled":false,"notificationDurationMs":4000,"sourceLocations":[]}"#,
         )
         .unwrap();
-        assert!(!settings.game_bar_enabled);
+        assert!(settings.game_bar_enabled);
         assert_eq!(settings.game_bar_token.len(), 64);
         assert!(
             settings
@@ -421,7 +421,7 @@ mod tests {
         assert!(!settings.screenshot_enabled);
         assert!(!settings.achievement_overlay_enabled);
         assert!(!settings.obs_replay_enabled);
-        assert!(!settings.game_bar_enabled);
+        assert!(settings.game_bar_enabled);
         assert!(!settings.websocket_enabled);
         assert!(!settings.gntp_enabled);
     }
