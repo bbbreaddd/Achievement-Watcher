@@ -641,6 +641,96 @@ fn open_data_location(state: State<'_, AppState>, location: String) -> CommandRe
     }
 }
 
+#[tauri::command]
+async fn open_achievement_source(
+    app: AppHandle,
+    source_id: String,
+    game_id: String,
+) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let target = resolve_achievement_source(&state, &source_id, &game_id)?;
+        reveal_source_path(&target)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn resolve_achievement_source(
+    state: &State<'_, AppState>,
+    source_id: &str,
+    game_id: &str,
+) -> CommandResult<PathBuf> {
+    let store = state.store.lock().map_err(lock_error)?;
+    let settings = store.load_settings().map_err(error)?;
+    let mut source_ids = if source_id == "merged" {
+        store
+            .observations()
+            .map_err(error)?
+            .into_iter()
+            .filter(|item| item.game_id == game_id)
+            .map(|item| item.source_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    } else {
+        vec![source_id.to_owned()]
+    };
+    source_ids.sort_by_key(|candidate| {
+        settings
+            .source_locations
+            .iter()
+            .find(|location| location.id == *candidate)
+            .map(|location| source_priority(location.kind))
+            .unwrap_or(u8::MAX)
+    });
+    drop(store);
+
+    for candidate in source_ids {
+        let Some(location) = settings
+            .source_locations
+            .iter()
+            .find(|location| location.id == candidate && location.enabled)
+        else {
+            continue;
+        };
+        if location.kind == aw_core::SourceKind::Steam {
+            if let Some(path) = steam::stats_files(location).into_iter().find(|path| {
+                steam::stats_file_identity(path)
+                    .is_some_and(|(_, observed_game_id)| observed_game_id == game_id)
+            }) {
+                return Ok(path);
+            }
+        } else if let Some(path) = source::discover_files(std::slice::from_ref(location))
+            .into_iter()
+            .find(|path| source::infer_game_id(path).as_deref() == Some(game_id))
+        {
+            return Ok(path);
+        }
+    }
+    Err("No local achievement file is available for this source".into())
+}
+
+fn reveal_source_path(target: &Path) -> CommandResult<()> {
+    if !target.is_file() {
+        return Err("The achievement source file no longer exists".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        Command::new("explorer.exe")
+            .arg(format!("/select,{}", target.display()))
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .map(|_| ())
+            .map_err(error)
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Opening achievement sources is available only on Windows".into())
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Diagnostics {
@@ -4221,6 +4311,7 @@ pub fn run() {
             open_project_page,
             export_goldberg_achievements,
             open_data_location,
+            open_achievement_source,
             diagnostics,
             operation_status,
             retry_failed_notifications,

@@ -757,6 +757,20 @@ mod tests {
     }
 
     #[test]
+    fn catalog_keeps_games_without_achievements() {
+        let store = Store::open_memory().unwrap();
+        store
+            .save_game_metadata("400", "A Game Without Achievements", None)
+            .unwrap();
+
+        let games = store.catalog_games().unwrap();
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].game_id, "400");
+        assert_eq!(games[0].total, 0);
+        assert!(!games[0].tracked);
+    }
+
+    #[test]
     fn enrichment_uses_state_correct_achievement_artwork() {
         let store = Store::open_memory().unwrap();
         store
