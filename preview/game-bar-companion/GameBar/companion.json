@@ -1,0 +1,4 @@
+{
+  "protocol": "AchievementWatcher.GameBar.v1",
+  "transport": "named-pipe"
+}
