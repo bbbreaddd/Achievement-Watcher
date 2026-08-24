@@ -95,12 +95,18 @@ fn load_settings(state: State<'_, AppState>) -> CommandResult<AppSettings> {
 }
 
 #[tauri::command]
-fn read_profile_avatar(path: PathBuf) -> CommandResult<String> {
-    let metadata = std::fs::metadata(&path).map_err(error)?;
+async fn read_profile_avatar(path: PathBuf) -> CommandResult<String> {
+    tauri::async_runtime::spawn_blocking(move || read_profile_avatar_sync(&path))
+        .await
+        .map_err(error)?
+}
+
+fn read_profile_avatar_sync(path: &Path) -> CommandResult<String> {
+    let metadata = std::fs::metadata(path).map_err(error)?;
     if !metadata.is_file() || metadata.len() > 5 * 1024 * 1024 {
         return Err("Avatar must be an image smaller than 5 MB".into());
     }
-    let bytes = std::fs::read(&path).map_err(error)?;
+    let bytes = std::fs::read(path).map_err(error)?;
     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         "image/png"
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
@@ -114,8 +120,14 @@ fn read_profile_avatar(path: PathBuf) -> CommandResult<String> {
 }
 
 #[tauri::command]
-fn read_notification_audio(path: PathBuf) -> CommandResult<String> {
-    let metadata = std::fs::metadata(&path).map_err(error)?;
+async fn read_notification_audio(path: PathBuf) -> CommandResult<String> {
+    tauri::async_runtime::spawn_blocking(move || read_notification_audio_sync(&path))
+        .await
+        .map_err(error)?
+}
+
+fn read_notification_audio_sync(path: &Path) -> CommandResult<String> {
+    let metadata = std::fs::metadata(path).map_err(error)?;
     if !metadata.is_file() || metadata.len() > 12 * 1024 * 1024 {
         return Err("Notification audio must be a file smaller than 12 MB".into());
     }
@@ -137,7 +149,13 @@ fn read_notification_audio(path: PathBuf) -> CommandResult<String> {
 }
 
 #[tauri::command]
-fn import_steam_avatar(app: AppHandle, steam_id: String) -> CommandResult<PathBuf> {
+async fn import_steam_avatar(app: AppHandle, steam_id: String) -> CommandResult<PathBuf> {
+    tauri::async_runtime::spawn_blocking(move || import_steam_avatar_sync(&app, &steam_id))
+        .await
+        .map_err(error)?
+}
+
+fn import_steam_avatar_sync(app: &AppHandle, steam_id: &str) -> CommandResult<PathBuf> {
     use std::io::Read;
 
     if steam_id.len() != 17 || !steam_id.chars().all(|character| character.is_ascii_digit()) {
@@ -267,10 +285,14 @@ fn latest_preview_update() -> CommandResult<Option<DownloadableUpdate>> {
 }
 
 #[tauri::command]
-fn check_for_updates(
-    state: State<'_, AppState>,
-    manual: Option<bool>,
-) -> CommandResult<Option<UpdateInfo>> {
+async fn check_for_updates(app: AppHandle, manual: Option<bool>) -> CommandResult<Option<UpdateInfo>> {
+    tauri::async_runtime::spawn_blocking(move || check_for_updates_sync(&app, manual))
+        .await
+        .map_err(error)?
+}
+
+fn check_for_updates_sync(app: &AppHandle, manual: Option<bool>) -> CommandResult<Option<UpdateInfo>> {
+    let state = app.state::<AppState>();
     let settings = state
         .store
         .lock()
@@ -289,7 +311,13 @@ fn check_for_updates(
 }
 
 #[tauri::command]
-fn install_update(app: AppHandle) -> CommandResult<()> {
+async fn install_update(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || install_update_sync(&app))
+        .await
+        .map_err(error)?
+}
+
+fn install_update_sync(app: &AppHandle) -> CommandResult<()> {
     use std::io::Read;
     let update = latest_preview_update()?
         .ok_or_else(|| "No newer preview release is available".to_string())?;
@@ -422,8 +450,22 @@ fn open_project_page(project: String) -> CommandResult<()> {
 }
 
 #[tauri::command]
-fn export_goldberg_achievements(
-    state: State<'_, AppState>,
+async fn export_goldberg_achievements(
+    app: AppHandle,
+    source_id: String,
+    game_id: String,
+    path: PathBuf,
+) -> CommandResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        export_goldberg_achievements_sync(&state, source_id, game_id, path)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn export_goldberg_achievements_sync(
+    state: &State<'_, AppState>,
     source_id: String,
     game_id: String,
     path: PathBuf,
@@ -588,14 +630,26 @@ fn diagnostics(state: State<'_, AppState>) -> CommandResult<Diagnostics> {
 }
 
 #[tauri::command]
-fn retry_failed_notifications(app: AppHandle, state: State<'_, AppState>) -> CommandResult<usize> {
+async fn retry_failed_notifications(app: AppHandle) -> CommandResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        retry_failed_notifications_sync(&app, &state)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn retry_failed_notifications_sync(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> CommandResult<usize> {
     let count = state
         .store
         .lock()
         .map_err(lock_error)?
         .retry_failed_notifications()
         .map_err(error)?;
-    dispatch_pending(&app, &state)?;
+    dispatch_pending(app, state)?;
     Ok(count)
 }
 
@@ -610,12 +664,21 @@ fn dismiss_failed_notifications(state: State<'_, AppState>) -> CommandResult<usi
 }
 
 #[tauri::command]
-fn save_settings(
-    app: AppHandle,
-    state: State<'_, AppState>,
+async fn save_settings(app: AppHandle, settings: AppSettings) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        save_settings_sync(&app, &state, settings)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn save_settings_sync(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
     settings: AppSettings,
 ) -> CommandResult<()> {
-    configure_overlay_shortcut(&app, &settings)?;
+    configure_overlay_shortcut(app, &settings)?;
     if !cfg!(dev) {
         registry::configure_startup(settings.run_at_login)?;
     }
@@ -630,7 +693,7 @@ fn save_settings(
         .map_err(lock_error)?
         .save_settings(&settings)
         .map_err(error)?;
-    configure_watcher(&app, &state, &settings)?;
+    configure_watcher(app, state, &settings)?;
     let _ = app.emit("library-changed", ());
     Ok(())
 }
@@ -1103,14 +1166,19 @@ fn stable_source_id(kind: aw_core::SourceKind, path: &Path) -> String {
 }
 
 #[tauri::command]
-fn steam_accounts(state: State<'_, AppState>) -> CommandResult<Vec<steam::SteamAccount>> {
-    let settings = state
-        .store
-        .lock()
-        .map_err(lock_error)?
-        .load_settings()
-        .map_err(error)?;
-    Ok(steam::accounts(&settings.source_locations))
+async fn steam_accounts(app: AppHandle) -> CommandResult<Vec<steam::SteamAccount>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let settings = state
+            .store
+            .lock()
+            .map_err(lock_error)?
+            .load_settings()
+            .map_err(error)?;
+        Ok(steam::accounts(&settings.source_locations))
+    })
+    .await
+    .map_err(error)?
 }
 
 fn active_game_id(state: &State<'_, AppState>) -> Option<String> {
@@ -1129,8 +1197,13 @@ fn current_overlay_game_id(state: State<'_, AppState>) -> CommandResult<String> 
 }
 
 #[tauri::command]
-fn toggle_achievement_overlay(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
-    toggle_achievement_overlay_inner(&app, &state)
+async fn toggle_achievement_overlay(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        toggle_achievement_overlay_inner(&app, &state)
+    })
+    .await
+    .map_err(error)?
 }
 
 fn toggle_achievement_overlay_inner(
@@ -1153,7 +1226,7 @@ fn toggle_achievement_overlay_inner(
     WebviewWindowBuilder::new(
         app,
         "achievement-overlay",
-        WebviewUrl::App("index.html".into()),
+        WebviewUrl::App("index.html?view=achievement-overlay".into()),
     )
     .title("Achievements Overlay")
     .inner_size(720.0, 620.0)
@@ -1189,11 +1262,15 @@ fn configure_overlay_shortcut(app: &AppHandle, settings: &AppSettings) -> Comman
 }
 
 #[tauri::command]
-fn close_achievement_overlay(app: AppHandle) -> CommandResult<()> {
-    if let Some(window) = app.get_webview_window("achievement-overlay") {
-        window.destroy().map_err(error)?;
-    }
-    Ok(())
+async fn close_achievement_overlay(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(window) = app.get_webview_window("achievement-overlay") {
+            window.destroy().map_err(error)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(error)?
 }
 
 #[tauri::command]
@@ -2479,37 +2556,47 @@ fn playtime_notification(
 }
 
 #[tauri::command]
-fn test_game_bar(state: State<'_, AppState>) -> CommandResult<()> {
-    let settings = state
-        .store
-        .lock()
-        .map_err(lock_error)?
-        .load_settings()
-        .map_err(error)?;
-    if !settings.game_bar_enabled {
-        return Err("Enable the Game Bar companion transport first".into());
-    }
-    state
-        .game_bar
-        .deliver(&settings.game_bar_token, &sample_notification())
+async fn test_game_bar(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let settings = state
+            .store
+            .lock()
+            .map_err(lock_error)?
+            .load_settings()
+            .map_err(error)?;
+        if !settings.game_bar_enabled {
+            return Err("Enable the Game Bar companion transport first".into());
+        }
+        state
+            .game_bar
+            .deliver(&settings.game_bar_token, &sample_notification())
+    })
+    .await
+    .map_err(error)?
 }
 
 #[tauri::command]
-fn test_gntp(state: State<'_, AppState>) -> CommandResult<()> {
-    let settings = state
-        .store
-        .lock()
-        .map_err(lock_error)?
-        .load_settings()
-        .map_err(error)?;
-    if !settings.gntp_enabled {
-        return Err("Enable the GNTP transport first".into());
-    }
-    gntp::send(
-        &settings.gntp_host,
-        settings.gntp_port,
-        &sample_notification(),
-    )
+async fn test_gntp(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let settings = state
+            .store
+            .lock()
+            .map_err(lock_error)?
+            .load_settings()
+            .map_err(error)?;
+        if !settings.gntp_enabled {
+            return Err("Enable the GNTP transport first".into());
+        }
+        gntp::send(
+            &settings.gntp_host,
+            settings.gntp_port,
+            &sample_notification(),
+        )
+    })
+    .await
+    .map_err(error)?
 }
 
 #[tauri::command]
@@ -2572,12 +2659,21 @@ fn sample_playtime_notification() -> NotificationEvent {
 }
 
 #[tauri::command]
-fn acknowledge_notification(
-    app: AppHandle,
-    state: State<'_, AppState>,
+async fn acknowledge_notification(app: AppHandle, event_id: i64) -> CommandResult<DeliveryReceipt> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        acknowledge_notification_sync(&app, &state, event_id)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn acknowledge_notification_sync(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
     event_id: i64,
 ) -> CommandResult<DeliveryReceipt> {
-    notification_log(&state, &format!("renderer acknowledged event {event_id}"));
+    notification_log(state, &format!("renderer acknowledged event {event_id}"));
     let window = app
         .get_webview_window("notification")
         .ok_or_else(|| "Notification renderer closed before acknowledgement".to_string())?;
@@ -2619,17 +2715,38 @@ fn current_notification(state: State<'_, AppState>) -> CommandResult<Option<Noti
 }
 
 #[tauri::command]
-fn close_notification(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
-    notification_log(&state, "renderer requested close");
+async fn close_notification(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        close_notification_sync(&app, &state)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn close_notification_sync(app: &AppHandle, state: &State<'_, AppState>) -> CommandResult<()> {
+    notification_log(state, "renderer requested close");
     *state.current_overlay.lock().map_err(lock_error)? = None;
     if let Some(window) = app.get_webview_window("notification") {
         window.destroy().map_err(error)?;
     }
-    dispatch_pending(&app, &state)
+    dispatch_pending(app, state)
 }
 
 #[tauri::command]
-fn open_notification_game(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
+async fn open_notification_game(app: AppHandle) -> CommandResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        open_notification_game_sync(&app, &state)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn open_notification_game_sync(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+) -> CommandResult<()> {
     let event = state
         .current_overlay
         .lock()
@@ -2642,11 +2759,11 @@ fn open_notification_game(app: AppHandle, state: State<'_, AppState>) -> Command
         achievement_id: event.observation.achievement_id,
     };
     *state.pending_open_game.lock().map_err(lock_error)? = Some(request.clone());
-    show_main_window(&app)?;
+    show_main_window(app)?;
     // This event makes an already-open library react immediately. A newly
     // created WebView consumes the persisted request once its listener exists.
     let _ = app.emit_to("main", "open-game", request);
-    close_notification(app, state)
+    close_notification_sync(app, state)
 }
 
 #[tauri::command]
@@ -2660,10 +2777,23 @@ fn report_notification_error(state: State<'_, AppState>, message: String) {
 }
 
 #[tauri::command]
-fn capture_screenshot(
-    state: State<'_, AppState>,
+async fn capture_screenshot(
+    app: AppHandle,
     game: String,
     achievement: String,
+) -> CommandResult<Option<PathBuf>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        capture_screenshot_sync(&state, &game, &achievement)
+    })
+    .await
+    .map_err(error)?
+}
+
+fn capture_screenshot_sync(
+    state: &State<'_, AppState>,
+    game: &str,
+    achievement: &str,
 ) -> CommandResult<Option<PathBuf>> {
     if !state
         .store
@@ -2685,7 +2815,7 @@ fn capture_screenshot(
         .screenshot_directory
         .clone()
         .unwrap_or_else(|| state.data_dir.join("screenshots"));
-    capture_primary_display(&root, &game, &achievement, settings.screenshot_overwrite).map(Some)
+    capture_primary_display(&root, game, achievement, settings.screenshot_overwrite).map(Some)
 }
 
 fn process_path(
@@ -3742,13 +3872,18 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        let state = app.state::<AppState>();
-                        if let Err(message) = toggle_achievement_overlay_inner(app, &state) {
-                            notification_log(
-                                &state,
-                                &format!("Achievement overlay shortcut: {message}"),
-                            );
-                        }
+                        let handle = app.clone();
+                        std::thread::spawn(move || {
+                            let state = handle.state::<AppState>();
+                            if let Err(message) =
+                                toggle_achievement_overlay_inner(&handle, &state)
+                            {
+                                notification_log(
+                                    &state,
+                                    &format!("Achievement overlay shortcut: {message}"),
+                                );
+                            }
+                        });
                     }
                 })
                 .build(),
