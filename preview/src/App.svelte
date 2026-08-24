@@ -35,7 +35,7 @@
   let librarySort: 'name' | 'progress' | 'recent' = 'name';
   let settingsTab: 'general' | 'notification' | 'souvenir' | 'folder' | 'source' | 'advanced' | 'debug' = 'general';
   type SourceChoice = { sourceId: string; sourceKind?: SourceKind; sourcePath?: string };
-  let gameMenu: { game: GameSummary; x: number; y: number; sources?: Array<SourceChoice & { available: boolean }> } | null = null;
+  let gameMenu: { game: GameSummary; x: number; y: number; sources?: Array<SourceChoice & { available: boolean }>; sourceError?: string } | null = null;
   let avatarMenu: { x: number; y: number } | null = null;
   let achievementSort: 'name' | 'time' | 'progress' | 'rarity' = 'rarity';
   let achievementQuery = '';
@@ -159,13 +159,20 @@
     gameMenu = { game, x: event.clientX, y: event.clientY };
     await tick();
     gameMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
-    const choices = await invoke<SourceChoice[]>('game_sources', { gameId: game.gameId }).catch(() => []);
-    const sources = await Promise.all(choices.filter((choice) => choice.sourceId !== 'merged').map(async (choice) => ({
-      ...choice,
-      available: await invoke<boolean>('achievement_source_available', { sourceId: choice.sourceId, gameId: game.gameId }).catch(() => false),
-    })));
-    if (gameMenu?.game.sourceId === game.sourceId && gameMenu.game.gameId === game.gameId) {
-      gameMenu.sources = sources.filter((source) => source.available);
+    try {
+      const choices = await invoke<SourceChoice[]>('game_sources', { gameId: game.gameId });
+      const sources = await Promise.all(choices.filter((choice) => choice.sourceId !== 'merged').map(async (choice) => ({
+        ...choice,
+        available: await invoke<boolean>('achievement_source_available', { sourceId: choice.sourceId, gameId: game.gameId }),
+      })));
+      if (gameMenu?.game.sourceId === game.sourceId && gameMenu.game.gameId === game.gameId) {
+        gameMenu.sources = sources.filter((source) => source.available);
+      }
+    } catch (error) {
+      if (gameMenu?.game.sourceId === game.sourceId && gameMenu.game.gameId === game.gameId) {
+        gameMenu.sources = [];
+        gameMenu.sourceError = String(error);
+      }
     }
   }
 
@@ -193,7 +200,7 @@
       close();
       return;
     } else if (event.key === 'Tab') {
-      closeGameMenu();
+      close();
       return;
     }
     if (target) {
@@ -1136,7 +1143,7 @@
     {#if settings?.showPlayButton}<button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>{/if}
     <button role="menuitem" onclick={() => refreshGameMetadata(gameMenu!.game)}>Refresh game information</button>
     <button role="menuitem" onclick={() => { const game = gameMenu!.game; closeGameMenu(); requestConfirmation('Clear cached information?', `${game.name} will keep its local achievement progress, but downloaded names and artwork may need to be fetched again.`, 'Clear cache', () => clearGameMetadata(game)); }}>Clear cached information</button>
-    {#if gameMenu.sources === undefined}<div class="context-note">Checking achievement sources…</div>{:else if gameMenu.sources.length === 0}<div class="context-note">No local achievement source</div>{:else}{#each gameMenu.sources as source}<button role="menuitem" title={source.sourcePath ? `Open source under ${source.sourcePath}` : sourceDescription(source.sourceKind)} onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: source.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open {sourceLabel(source.sourceKind)} source</button>{/each}{/if}
+    {#if gameMenu.sources === undefined}<div class="context-note">Checking achievement sources…</div>{:else if gameMenu.sourceError}<div class="context-note error" title={gameMenu.sourceError}>Could not check achievement sources</div>{:else if gameMenu.sources.length === 0}<div class="context-note">No local achievement source</div>{:else}{#each gameMenu.sources as source}<button role="menuitem" title={source.sourcePath ? `Open source under ${source.sourcePath}` : sourceDescription(source.sourceKind)} onclick={() => { const game = gameMenu!.game; closeGameMenu(); invoke('open_achievement_source', { sourceId: source.sourceId, gameId: game.gameId }).catch((error) => status = `Could not open achievement source: ${String(error)}`); }}>Open {sourceLabel(source.sourceKind)} source</button>{/each}{/if}
     {#if hasSteamAppId(gameMenu.game)}
       <div class="context-separator"></div>
       <button role="menuitem" onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>

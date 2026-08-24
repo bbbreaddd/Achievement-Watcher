@@ -230,6 +230,7 @@ footer > span:first-child.busy { background: #d59a2e; }
 .context-menu { position: fixed; z-index: 500; width: 210px; max-height: calc(100vh - 16px); padding: 5px 0; overflow-y: auto; border: 1px solid #40516a; border-radius: 2px; background: #172437; box-shadow: 0 8px 24px #000b; }
 .context-menu .context-title { padding: 7px 12px 8px; overflow: hidden; border-bottom: 1px solid #34465d; color: #8f9cad; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .context-menu .context-note { padding: 8px 12px; color: #7f8d9d; font-size: 11px; line-height: 1.35; }
+.context-menu .context-note.error { color: #d58d87; }
 .context-menu button { width: 100%; min-height: 32px; padding: 5px 12px; border: 0; border-radius: 0; background: transparent; text-align: left; }
 .context-menu button > i { width: 22px; color: #8fa8c2; text-align: center; }
 .context-menu button:hover { background: #2a4058; }
