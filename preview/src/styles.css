@@ -60,7 +60,6 @@ section { max-width: 1180px; margin: 0 auto; }
 .game-header { position: relative; width: 100%; height: 107.5px; display: grid; place-items: center; overflow: hidden; background: #27374a; color: #66809c; font-size: 36px; transition: opacity .2s ease; }
 .game-header img { z-index: 1; grid-area: 1 / 1; width: 100%; height: 100%; object-fit: cover; }
 .game-header > span:first-child { grid-area: 1 / 1; }
-.game-box:hover .game-header img, .game-box:hover .game-header > span:first-child { opacity: .45; }
 .game-menu-button { position: absolute; z-index: 3; top: 5px; right: 5px; width: 22px; min-width: 22px; height: 22px; min-height: 22px; padding: 0; border: 1px solid #ffffff30; border-radius: 2px; background: #0b111ae6; color: #fff; font-size: 11px; opacity: 0; transition: opacity .14s ease; }
 .game-box:hover .game-menu-button, .game-menu-button:focus-visible { opacity: .9; }
 #game-list .game-info { width: 100%; max-width: 230px; display: block; padding: 5px 10px; }
