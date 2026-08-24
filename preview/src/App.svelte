@@ -81,12 +81,17 @@
     return source.slice(0, 2).toUpperCase();
   }
 
+  function hasSteamAppId(game: GameSummary) {
+    return /^\d+$/.test(game.gameId)
+      && ['steam', 'steam_emulator', 'green_luma', 'watchdog_cache'].includes(game.sourceKind ?? '');
+  }
+
   function imageUrl(value: string) {
     return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\') ? convertFileSrc(value) : value;
   }
 
   function gameArtwork(game: GameSummary) {
-    if (settings?.thumbnailPortrait && /^\d+$/.test(game.gameId)) {
+    if (settings?.thumbnailPortrait && hasSteamAppId(game)) {
       return `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.gameId}/library_600x900_2x.jpg`;
     }
     return game.icon ? imageUrl(game.icon) : undefined;
@@ -506,6 +511,20 @@
     }
   }
 
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape') return;
+    if (gameMenu || avatarMenu) {
+      gameMenu = null;
+      avatarMenu = null;
+    } else if (gameConfig) {
+      gameConfig = null;
+    } else if (view === 'settings') {
+      void cancelSettings();
+    } else if (selectedGame) {
+      selectedGame = null;
+    }
+  }
+
   onMount(() => {
     let disposed = false;
     const cleanup: Array<() => void> = [];
@@ -552,7 +571,7 @@
 </script>
 
 <svelte:head><title>Achievement Watcher</title></svelte:head>
-<svelte:window onclick={() => { gameMenu = null; avatarMenu = null; }} onkeydown={(event) => { if (event.key === 'Escape') { gameMenu = null; avatarMenu = null; } }} />
+<svelte:window onclick={() => { gameMenu = null; avatarMenu = null; }} onkeydown={handleWindowKeydown} />
 
 <header class="title-bar" data-tauri-drag-region>
   <div class="watcher-state"><span class:busy={scanning}></span><span>{scanning ? 'Scanning achievements…' : 'Achievement Watcher is running'}</span></div>
@@ -797,14 +816,14 @@
     <button role="menuitem" onclick={() => openGame(gameMenu!.game)}>View achievements</button>
     <button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>
     <button role="menuitem" onclick={() => refreshGameMetadata(gameMenu!.game)}>Refresh game information</button>
-    <button role="menuitem" disabled={!/^\d+$/.test(gameMenu.game.gameId)} onclick={() => exportGoldbergAchievements(gameMenu!.game)}>Generate Goldberg achievements.json</button>
+    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => exportGoldbergAchievements(gameMenu!.game)}>Generate Goldberg achievements.json</button>
     <button role="menuitem" onclick={() => clearGameMetadata(gameMenu!.game)}>Clear cached information</button>
     <button role="menuitem" disabled={gameMenu.game.playtimeSeconds === 0 && gameMenu.game.lastPlayed === 0} onclick={() => resetGameActivity(gameMenu!.game)}>Reset playtime and last played</button>
     <button role="menuitem" onclick={() => { gameMenu = null; invoke('open_data_location', { location: 'data' }).catch((error) => status = String(error)); }}>Open Achievement Watcher data folder</button>
     <div class="context-separator"></div>
-    <button role="menuitem" disabled={!/^\d+$/.test(gameMenu.game.gameId)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
-    <button role="menuitem" disabled={!/^\d+$/.test(gameMenu.game.gameId)} onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>
-    <button role="menuitem" disabled={!/^\d+$/.test(gameMenu.game.gameId)} onclick={() => openGameWebsite(gameMenu!.game, 'pcgamingwiki')}>PCGamingWiki</button>
+    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steam')}>Steam store</button>
+    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'steamdb')}>SteamDB</button>
+    <button role="menuitem" disabled={!hasSteamAppId(gameMenu.game)} onclick={() => openGameWebsite(gameMenu!.game, 'pcgamingwiki')}>PCGamingWiki</button>
     <div class="context-separator"></div>
     <button role="menuitem" class="danger" onclick={() => blacklistGame(gameMenu!.game)}>Add to blacklist</button>
   </div>
