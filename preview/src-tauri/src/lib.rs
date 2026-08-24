@@ -1,3 +1,4 @@
+mod artwork;
 mod game_bar;
 mod gntp;
 mod jobs;
@@ -2397,11 +2398,25 @@ fn refresh_metadata_sync(
                 let icon = format!(
                     "https://cdn.cloudflare.steamstatic.com/steam/apps/{game_id}/header.jpg"
                 );
+                let cached_icon = artwork::cache_image(
+                    &agent,
+                    &state.data_dir,
+                    &format!("steam-{game_id}-header"),
+                    &icon,
+                )
+                .ok();
                 state
                     .store
                     .lock()
                     .map_err(lock_error)?
-                    .save_game_metadata(&game_id, name, Some(&icon))
+                    .save_game_metadata(
+                        &game_id,
+                        name,
+                        cached_icon
+                            .as_deref()
+                            .and_then(Path::to_str)
+                            .or(Some(icon.as_str())),
+                    )
                     .map_err(error)?;
                 updated += 1;
             }
@@ -2634,11 +2649,27 @@ fn import_gog_metadata(
     if let Some(name) = title {
         let icon = steam_id
             .map(|id| format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{id}/header.jpg"));
+        let cached_icon = icon.as_deref().and_then(|url| {
+            artwork::cache_image(
+                agent,
+                &state.data_dir,
+                &format!("steam-{canonical_game_id}-header"),
+                url,
+            )
+            .ok()
+        });
         state
             .store
             .lock()
             .map_err(lock_error)?
-            .save_game_metadata(canonical_game_id, name, icon.as_deref())
+            .save_game_metadata(
+                canonical_game_id,
+                name,
+                cached_icon
+                    .as_deref()
+                    .and_then(Path::to_str)
+                    .or(icon.as_deref()),
+            )
             .map_err(error)?;
         saved = true;
     }
