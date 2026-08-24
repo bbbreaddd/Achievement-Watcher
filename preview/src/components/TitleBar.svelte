@@ -17,8 +17,8 @@
     <span>{scanning ? 'Scanning achievements…' : 'Achievement Watcher is running'}</span>
   </div>
   <nav aria-label="Window controls">
+    <button class="settings" aria-label="Settings" title="Settings" class:active={settingsActive} disabled={settingsActive} onclick={onSettings}><i class="fas fa-cog"></i></button>
     <button aria-label="Minimize" title="Minimize" onclick={onMinimize}><i class="far fa-window-minimize"></i></button>
-    <button aria-label="Settings" title="Settings" class:active={settingsActive} disabled={settingsActive} onclick={onSettings}><i class="fas fa-cog"></i></button>
     <button aria-label="Maximize" title="Maximize" onclick={onMaximize}><i class="far fa-window-maximize"></i></button>
     <button class="close" aria-label="Close" title="Close" onclick={onClose}><i class="fas fa-times"></i></button>
   </nav>

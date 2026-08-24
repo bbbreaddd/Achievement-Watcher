@@ -21,7 +21,7 @@ export function sourceLabel(source?: string): string {
     case 'gog': return 'GOG emulator save';
     case 'luma_play': return 'LumaPlay';
     case 'watchdog_cache': return 'Achievement Watcher cache';
-    default: return 'Cached Steam metadata';
+    default: return 'Cached game information';
   }
 }
 
@@ -41,7 +41,7 @@ export function sourceDescription(source?: string): string {
 }
 
 export function preferredAchievementSource(choices: AchievementSourceChoice[], fallback: string): string {
-  return choices.find((choice) => choice.sourceKind === 'steam' && choice.sourceId !== 'merged')?.sourceId
+  return choices.find((choice) => ['steam', 'gog_galaxy'].includes(choice.sourceKind ?? '') && choice.sourceId !== 'merged')?.sourceId
     ?? choices.find((choice) => choice.sourceId === fallback && choice.sourceId !== 'merged')?.sourceId
     ?? choices[0]?.sourceId
     ?? fallback;
