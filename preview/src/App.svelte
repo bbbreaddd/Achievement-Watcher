@@ -215,11 +215,16 @@
   async function changeAchievementSource() {
     if (!selectedGame) return;
     achievementStatus = 'Loading achievements…';
-    achievements = await invoke<AchievementObservation[]>('list_achievements', {
-      sourceId: activeAchievementSource,
-      gameId: selectedGame.gameId,
-    });
-    achievementStatus = achievements.length ? '' : 'No achievements were read from this source.';
+    try {
+      achievements = await invoke<AchievementObservation[]>('list_achievements', {
+        sourceId: activeAchievementSource,
+        gameId: selectedGame.gameId,
+      });
+      achievementStatus = achievements.length ? '' : 'No achievements were read from this source.';
+    } catch (error) {
+      achievements = [];
+      achievementStatus = `Could not load this source: ${String(error)}`;
+    }
   }
 
   function kindForSource(sourceId?: string) {
@@ -330,14 +335,18 @@
   async function detectSources(deep = false, scanAfter = true) {
     if (!settings) return;
     status = deep ? 'Searching local drives for achievement sources…' : status;
-    const detected = await invoke<AppSettings['sourceLocations']>('detect_sources', { deep });
-    const known = new Set(settings.sourceLocations.map((source) => source.path.toLowerCase()));
-    const additions = detected.filter((source) => !known.has(source.path.toLowerCase()));
-    settings.sourceLocations = [...settings.sourceLocations, ...additions];
-    settings.sourcesInitialized = true;
-    if (await save()) {
-      status = additions.length ? `Found ${additions.length} achievement folder${additions.length === 1 ? '' : 's'}` : 'No new achievement folders found';
-      if (scanAfter && additions.length) await scan(true);
+    try {
+      const detected = await invoke<AppSettings['sourceLocations']>('detect_sources', { deep });
+      const known = new Set(settings.sourceLocations.map((source) => source.path.toLowerCase()));
+      const additions = detected.filter((source) => !known.has(source.path.toLowerCase()));
+      settings.sourceLocations = [...settings.sourceLocations, ...additions];
+      settings.sourcesInitialized = true;
+      if (await save()) {
+        status = additions.length ? `Found ${additions.length} achievement folder${additions.length === 1 ? '' : 's'}` : 'No new achievement folders found';
+        if (scanAfter && additions.length) await scan(true);
+      }
+    } catch (error) {
+      status = `Source discovery failed: ${String(error)}`;
     }
   }
 
@@ -363,9 +372,13 @@
 
   async function clearGameMetadata(game: GameSummary) {
     gameMenu = null;
-    await invoke('clear_game_metadata', { gameId: game.gameId });
-    await refresh();
-    status = `Cleared cached information for ${game.name}`;
+    try {
+      await invoke('clear_game_metadata', { gameId: game.gameId });
+      await refresh();
+      status = `Cleared cached information for ${game.name}`;
+    } catch (error) {
+      status = `Could not clear ${game.name}: ${String(error)}`;
+    }
   }
 
   async function openGameWebsite(game: GameSummary, website: 'steam' | 'steamdb' | 'pcgamingwiki') {
@@ -393,9 +406,13 @@
 
   async function resetGameActivity(game: GameSummary) {
     gameMenu = null;
-    await invoke('reset_game_activity', { gameId: game.gameId });
-    await refresh();
-    status = `Reset playtime and last played for ${game.name}`;
+    try {
+      await invoke('reset_game_activity', { gameId: game.gameId });
+      await refresh();
+      status = `Reset playtime and last played for ${game.name}`;
+    } catch (error) {
+      status = `Could not reset ${game.name}: ${String(error)}`;
+    }
   }
 
   async function blacklistGame(game: GameSummary) {
