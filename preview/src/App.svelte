@@ -54,6 +54,7 @@
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
   let blacklistedGames: Array<{ gameId: string; name: string }> = [];
+  let defaultScreenshotDirectory = '';
   let savingSettings = false;
   let maximized = false;
   let gameMenuElement: HTMLElement;
@@ -907,6 +908,7 @@
         status = `Legacy import skipped: ${String(error)}`;
       });
       settings = await invoke<AppSettings>('load_settings');
+      defaultScreenshotDirectory = await invoke<string>('default_screenshot_directory');
       applyLanguage();
       await Promise.all([loadDiagnostics(), loadAvatar()]);
       operation = await invoke<OperationSnapshot>('operation_status').catch(() => null);
@@ -1130,7 +1132,7 @@
       <div class="settings-group">
         <h3>Screenshot</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.screenshotEnabled} onchange={save} /> Save a screenshot when an achievement unlocks</label>
-        {#if settings.screenshotEnabled}<label class="check nested"><input type="checkbox" bind:checked={settings.screenshotOverwrite} onchange={save} /> Replace an existing screenshot for the same achievement</label><div class="folder-setting"><span>Save location</span><code>{settings.screenshotDirectory ?? 'Application data / screenshots'}</code><button onclick={() => invoke('open_data_location', { location: 'screenshots' }).catch((error) => status = String(error))}>Open</button><button onclick={chooseScreenshotFolder}>Choose</button>{#if settings.screenshotDirectory}<button onclick={() => { if (settings) { settings.screenshotDirectory = undefined; void save(); } }}>Reset</button>{/if}</div>{/if}
+        {#if settings.screenshotEnabled}<p class="settings-help">Screenshots are organized into a folder for each game. Repeated unlocks are saved as additional timestamped copies.</p><div class="folder-setting"><span>Save location</span><code>{settings.screenshotDirectory ?? defaultScreenshotDirectory}</code><button onclick={() => invoke('open_data_location', { location: 'screenshots' }).catch((error) => status = String(error))}>Open</button><button onclick={chooseScreenshotFolder}>Choose</button>{#if settings.screenshotDirectory}<button onclick={() => { if (settings) { settings.screenshotDirectory = undefined; void save(); } }}>Reset</button>{/if}</div>{/if}
       </div>
       <div class="settings-group">
         <h3>Achievement clips</h3>

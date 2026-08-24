@@ -50,6 +50,7 @@ struct AppState {
     websocket: websocket::Bridge,
     jobs: jobs::JobCoordinator,
     data_dir: PathBuf,
+    screenshot_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -621,7 +622,7 @@ fn open_data_location(state: State<'_, AppState>, location: String) -> CommandRe
             .load_settings()
             .map_err(error)?
             .screenshot_directory
-            .unwrap_or_else(|| state.data_dir.join("screenshots")),
+            .unwrap_or_else(|| state.screenshot_dir.clone()),
         _ => return Err("Unsupported application data location".into()),
     };
     #[cfg(windows)]
@@ -650,6 +651,11 @@ fn open_data_location(state: State<'_, AppState>, location: String) -> CommandRe
         let _ = target;
         Err("Opening application data is available only on Windows".into())
     }
+}
+
+#[tauri::command]
+fn default_screenshot_directory(state: State<'_, AppState>) -> PathBuf {
+    state.screenshot_dir.clone()
 }
 
 #[tauri::command]
@@ -1189,7 +1195,7 @@ fn list_blacklisted_games(state: State<'_, AppState>) -> CommandResult<Vec<Black
             BlacklistedGame { game_id, name }
         })
         .collect::<Vec<_>>();
-    games.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    games.sort_by_key(|game| game.name.to_lowercase());
     Ok(games)
 }
 
@@ -2185,13 +2191,16 @@ fn handle_created_events(
                 let root = settings
                     .screenshot_directory
                     .clone()
-                    .unwrap_or_else(|| state.data_dir.join("screenshots"));
-                if let Err(message) = capture_primary_display(
-                    &root,
-                    &event.observation.game_id,
-                    achievement,
-                    settings.screenshot_overwrite,
-                ) {
+                    .unwrap_or_else(|| state.screenshot_dir.clone());
+                let game = state
+                    .store
+                    .lock()
+                    .map_err(lock_error)?
+                    .game_metadata(&event.observation.game_id)
+                    .map_err(error)?
+                    .map(|(name, _)| name)
+                    .unwrap_or_else(|| event.observation.game_id.clone());
+                if let Err(message) = capture_primary_display(&root, &game, achievement) {
                     notification_log(state, &format!("Screenshot skipped: {message}"));
                 }
             }
@@ -3329,8 +3338,8 @@ fn capture_screenshot_sync(
     let root = settings
         .screenshot_directory
         .clone()
-        .unwrap_or_else(|| state.data_dir.join("screenshots"));
-    capture_primary_display(&root, game, achievement, settings.screenshot_overwrite).map(Some)
+        .unwrap_or_else(|| state.screenshot_dir.clone());
+    capture_primary_display(&root, game, achievement).map(Some)
 }
 
 fn process_path(
@@ -4494,7 +4503,6 @@ fn capture_primary_display(
     data_dir: &Path,
     game: &str,
     achievement: &str,
-    overwrite: bool,
 ) -> CommandResult<PathBuf> {
     let monitor = xcap::Monitor::all()
         .map_err(error)?
@@ -4506,8 +4514,16 @@ fn capture_primary_display(
     std::fs::create_dir_all(&directory).map_err(error)?;
     let base = sanitize(achievement);
     let mut path = directory.join(format!("{base}.png"));
-    if !overwrite && path.exists() {
+    if path.exists() {
         path = directory.join(format!("{base}-{}.png", Utc::now().format("%Y%m%d-%H%M%S")));
+        let mut copy = 2;
+        while path.exists() {
+            path = directory.join(format!(
+                "{base}-{}-{copy}.png",
+                Utc::now().format("%Y%m%d-%H%M%S")
+            ));
+            copy += 1;
+        }
     }
     let temporary = path.with_extension("png.tmp");
     image.save(&temporary).map_err(error)?;
@@ -4520,7 +4536,6 @@ fn capture_primary_display(
     _data_dir: &Path,
     _game: &str,
     _achievement: &str,
-    _overwrite: bool,
 ) -> CommandResult<PathBuf> {
     Err("Screenshots are available only in packaged Windows builds".into())
 }
@@ -4587,6 +4602,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
+            let screenshot_dir = app.path().picture_dir()?.join("Achievements");
             let store = Store::open(data_dir.join("achievement-watcher.sqlite3"))?;
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -4602,6 +4618,7 @@ pub fn run() {
                 websocket: websocket::Bridge::default(),
                 jobs: jobs::JobCoordinator::default(),
                 data_dir,
+                screenshot_dir,
             });
             let mut startup_settings = app
                 .state::<AppState>()
@@ -4698,6 +4715,7 @@ pub fn run() {
             open_project_page,
             export_goldberg_achievements,
             open_data_location,
+            default_screenshot_directory,
             open_achievement_source,
             openable_game_sources,
             diagnostics,
