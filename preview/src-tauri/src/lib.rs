@@ -3576,7 +3576,9 @@ fn show_overlay(
                 .ok()
                 .and_then(|store| store.load_settings().ok())
                 .unwrap_or_default();
-            if settings.notification_mode == NotificationMode::OverlayWithNativeFallback {
+            if event_for_timeout.id >= 0
+                && settings.notification_mode == NotificationMode::OverlayWithNativeFallback
+            {
                 notification_log(&state, "attempting Windows notification fallback");
                 let _ = deliver_native(&handle, &state, &event_for_timeout);
             } else if event_for_timeout.id >= 0 {
@@ -3635,7 +3637,9 @@ fn show_overlay(
                     .ok()
                     .and_then(|store| store.load_settings().ok())
                     .unwrap_or_default();
-                if settings.notification_mode == NotificationMode::OverlayWithNativeFallback {
+                if event.id >= 0
+                    && settings.notification_mode == NotificationMode::OverlayWithNativeFallback
+                {
                     notification_log(&state, "watchdog attempting Windows notification fallback");
                     let _ = deliver_native(&app_for_close, &state, &event);
                 } else if event.id >= 0 {
@@ -3652,7 +3656,7 @@ fn show_overlay(
 
 fn notification_preset_size(preset: &str) -> (f64, f64) {
     match preset {
-        "default" | "original" => (450.0, 150.0),
+        "default" | "original" => (420.0, 110.0),
         "ps4" => (400.0, 200.0),
         "ps5" => (400.0, 150.0),
         "ps5_enhanced" => (450.0, 150.0),
@@ -3660,7 +3664,7 @@ fn notification_preset_size(preset: &str) -> (f64, f64) {
         "xbox_360" => (600.0, 150.0),
         "raposo" | "smooth_pop" => (400.0, 150.0),
         "xqjan" => (450.0, 150.0),
-        _ => (474.0, 128.0),
+        _ => (382.0, 106.0),
     }
 }
 
