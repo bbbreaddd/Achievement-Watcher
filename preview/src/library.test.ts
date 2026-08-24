@@ -19,4 +19,12 @@ describe('library presentation', () => {
       { sourceId: 'client', sourceKind: 'steam' },
     ], 'merged')).toBe('client');
   });
+
+  it('prefers GOG Galaxy progress over merged and emulator progress', () => {
+    expect(preferredAchievementSource([
+      { sourceId: 'merged', sourceKind: 'gog_galaxy' },
+      { sourceId: 'emulator', sourceKind: 'gog' },
+      { sourceId: 'galaxy', sourceKind: 'gog_galaxy' },
+    ], 'merged')).toBe('galaxy');
+  });
 });
