@@ -329,6 +329,21 @@ impl Store {
         Ok((pending, failed))
     }
 
+    pub fn retry_failed_notifications(&self) -> Result<usize> {
+        Ok(self.connection.execute(
+            "UPDATE notification_events SET status='pending',attempts=0,next_attempt_at=?1
+             WHERE status='failed'",
+            [Utc::now().timestamp()],
+        )?)
+    }
+
+    pub fn dismiss_failed_notifications(&self) -> Result<usize> {
+        Ok(self.connection.execute(
+            "UPDATE notification_events SET status='dismissed' WHERE status='failed'",
+            [],
+        )?)
+    }
+
     pub fn recent_delivery_errors(&self, limit: usize) -> Result<Vec<String>> {
         let mut statement = self.connection.prepare(
             "SELECT transport || ': ' || error FROM delivery_attempts
@@ -702,6 +717,33 @@ mod tests {
         assert!(store.pending_events(i64::MAX, 10).unwrap()[0].attempts > 0);
         store.record_delivery(event.id, "native", Ok(())).unwrap();
         assert!(store.pending_events(i64::MAX, 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_notifications_can_be_retried_or_dismissed() {
+        let mut store = Store::open_memory().unwrap();
+        store
+            .record_observations(&[observation(false, 0)], true)
+            .unwrap();
+        let event = store
+            .record_observations(&[observation(true, 0)], false)
+            .unwrap()
+            .remove(0);
+        for _ in 0..8 {
+            store
+                .record_delivery(event.id, "overlay", Err("timeout"))
+                .unwrap();
+        }
+        assert_eq!(store.notification_queue_counts().unwrap(), (0, 1));
+        assert_eq!(store.retry_failed_notifications().unwrap(), 1);
+        assert_eq!(store.notification_queue_counts().unwrap(), (1, 0));
+        for _ in 0..8 {
+            store
+                .record_delivery(event.id, "overlay", Err("timeout"))
+                .unwrap();
+        }
+        assert_eq!(store.dismiss_failed_notifications().unwrap(), 1);
+        assert_eq!(store.notification_queue_counts().unwrap(), (0, 0));
     }
 
     #[test]

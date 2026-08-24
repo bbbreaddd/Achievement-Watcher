@@ -496,7 +496,23 @@
   }
 
   async function loadDiagnostics() {
-    diagnosticData = await invoke<typeof diagnosticData>('diagnostics');
+    try {
+      diagnosticData = await invoke<typeof diagnosticData>('diagnostics');
+    } catch (error) {
+      status = `Could not load diagnostics: ${String(error)}`;
+    }
+  }
+
+  async function recoverFailedNotifications(dismiss: boolean) {
+    try {
+      const count = await invoke<number>(dismiss ? 'dismiss_failed_notifications' : 'retry_failed_notifications');
+      status = dismiss
+        ? `Dismissed ${count} failed notification${count === 1 ? '' : 's'}`
+        : `Retrying ${count} failed notification${count === 1 ? '' : 's'}`;
+      await loadDiagnostics();
+    } catch (error) {
+      status = `Notification recovery failed: ${String(error)}`;
+    }
   }
 
   async function checkUpdates(manual = true) {
@@ -819,7 +835,7 @@
         {#if settings.gameBarEnabled}<div class="field"><span>Xbox Game Bar</span><button onclick={() => invoke('test_game_bar').then(() => status = 'Game Bar acknowledged the test').catch((error) => status = `Game Bar test failed: ${String(error)}`)}>Run test</button></div>{/if}
         {#if settings.obsReplayEnabled}<div class="field"><span>OBS replay buffer</span><button onclick={() => invoke('test_obs').then(() => status = 'OBS replay buffer saved').catch((error) => status = `OBS test failed: ${String(error)}`)}>Run test</button></div>{/if}
         <div class="field"><span>Runtime status</span><button onclick={loadDiagnostics}>Refresh</button></div>
-        {#if diagnosticData}<div class="diagnostic-grid"><span>Version</span><strong>{diagnosticData.appVersion}</strong><span>Games</span><strong>{diagnosticData.gameCount}</strong><span>Achievement records</span><strong>{diagnosticData.observationCount}</strong><span>Enabled folders</span><strong>{diagnosticData.enabledSourceCount}</strong><span>Missing folders</span><strong class:warning={diagnosticData.missingSourceCount > 0}>{diagnosticData.missingSourceCount}</strong><span>Pending notifications</span><strong>{diagnosticData.pendingNotifications}</strong><span>Failed notifications</span><strong class:warning={diagnosticData.failedNotifications > 0}>{diagnosticData.failedNotifications}</strong></div>{#if diagnosticData.recentErrors.length}<div class="diagnostic"><span>Recent delivery errors</span>{#each diagnosticData.recentErrors as message}<code>{message}</code>{/each}</div>{/if}<div class="diagnostic"><span>Notification log</span><code>{diagnosticData.notificationLog}</code><button onclick={() => invoke('open_data_location', { location: 'notification_log' }).catch((error) => status = String(error))}>Open</button></div>{/if}
+        {#if diagnosticData}<div class="diagnostic-grid"><span>Version</span><strong>{diagnosticData.appVersion}</strong><span>Games</span><strong>{diagnosticData.gameCount}</strong><span>Achievement records</span><strong>{diagnosticData.observationCount}</strong><span>Enabled folders</span><strong>{diagnosticData.enabledSourceCount}</strong><span>Missing folders</span><strong class:warning={diagnosticData.missingSourceCount > 0}>{diagnosticData.missingSourceCount}</strong><span>Pending notifications</span><strong>{diagnosticData.pendingNotifications}</strong><span>Failed notifications</span><strong class:warning={diagnosticData.failedNotifications > 0}>{diagnosticData.failedNotifications}</strong></div>{#if diagnosticData.failedNotifications > 0}<div class="field"><span>Failed notification queue</span><button onclick={() => recoverFailedNotifications(false)}>Retry now</button><button onclick={() => recoverFailedNotifications(true)}>Dismiss</button></div>{/if}{#if diagnosticData.recentErrors.length}<div class="diagnostic"><span>Recent delivery errors</span>{#each diagnosticData.recentErrors as message}<code>{message}</code>{/each}</div>{/if}<div class="diagnostic"><span>Notification log</span><code>{diagnosticData.notificationLog}</code><button onclick={() => invoke('open_data_location', { location: 'notification_log' }).catch((error) => status = String(error))}>Open</button></div>{/if}
       </div>
       {/if}
       </div></div>

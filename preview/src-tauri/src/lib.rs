@@ -588,6 +588,28 @@ fn diagnostics(state: State<'_, AppState>) -> CommandResult<Diagnostics> {
 }
 
 #[tauri::command]
+fn retry_failed_notifications(app: AppHandle, state: State<'_, AppState>) -> CommandResult<usize> {
+    let count = state
+        .store
+        .lock()
+        .map_err(lock_error)?
+        .retry_failed_notifications()
+        .map_err(error)?;
+    dispatch_pending(&app, &state)?;
+    Ok(count)
+}
+
+#[tauri::command]
+fn dismiss_failed_notifications(state: State<'_, AppState>) -> CommandResult<usize> {
+    state
+        .store
+        .lock()
+        .map_err(lock_error)?
+        .dismiss_failed_notifications()
+        .map_err(error)
+}
+
+#[tauri::command]
 fn save_settings(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -3788,6 +3810,8 @@ pub fn run() {
             export_goldberg_achievements,
             open_data_location,
             diagnostics,
+            retry_failed_notifications,
+            dismiss_failed_notifications,
             save_settings,
             import_legacy,
             list_games,
