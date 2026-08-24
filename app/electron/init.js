@@ -65,6 +65,7 @@ let isOverlayShowing = false;
 const earnedNotificationQueue = [];
 const playtimeQueue = [];
 const progressQueue = [];
+const NOTIFICATION_WINDOW_TIMEOUT_MS = 30000;
 let debug = new (require('@xan105/log'))({
   console: manifest.config.debug || false,
   file: path.join(userData, `logs/renderer.log`),
@@ -1355,6 +1356,9 @@ async function createOverlayWindow(info) {
 }
 
 async function createNotificationWindow(info) {
+  let currentWindow = null;
+  let closeTimeout = null;
+  let closeHandlerInstalled = false;
   try {
     if (isNotificationShowing) {
       earnedNotificationQueue.push(info);
@@ -1432,6 +1436,7 @@ async function createNotificationWindow(info) {
         backgroundThrottling: false,
       },
     });
+    currentWindow = notificationWindow;
 
     if (manifest.config.debug) {
       notificationWindow.webContents.openDevTools({ mode: 'undocked' });
@@ -1477,11 +1482,12 @@ async function createNotificationWindow(info) {
           ? path.join(process.env.SystemRoot || process.env.WINDIR, 'media', toastAudio.getDefault())
           : toastAudio.getCustom();
     }
-    notificationWindow.webContents.on('did-finish-load', () => {
-      notificationWindow.showInactive();
-      notificationWindow.webContents.send('set-window-scale', scale);
-      notificationWindow.webContents.send('set-animation-scale', (configJS.overlay?.duration ?? 1) * 0.01);
-      notificationWindow.webContents.send('show-notification', {
+    currentWindow.webContents.on('did-finish-load', () => {
+      if (currentWindow.isDestroyed()) return;
+      currentWindow.showInactive();
+      currentWindow.webContents.send('set-window-scale', scale);
+      currentWindow.webContents.send('set-animation-scale', (configJS.overlay?.duration ?? 1) * 0.01);
+      currentWindow.webContents.send('show-notification', {
         game: message.name,
         displayName: message.displayName,
         description: message.description,
@@ -1489,26 +1495,43 @@ async function createNotificationWindow(info) {
         scale,
       });
       createOverlayWindow({ appid: info.appid, action: 'refresh' });
-      player.play(soundFile);
+      if (soundFile) player.play(soundFile).catch((err) => debug.warn(`Notification audio failed: ${err}`));
     });
 
-    notificationWindow.on('closed', async () => {
+    currentWindow.webContents.once('did-fail-load', (_event, code, description) => {
+      debug.warn(`Notification preset failed to load (${code}): ${description}`);
+      if (!currentWindow.isDestroyed()) currentWindow.close();
+    });
+
+    currentWindow.on('closed', async () => {
+      if (closeTimeout) clearTimeout(closeTimeout);
       isNotificationShowing = false;
-      notificationWindow = null;
+      if (notificationWindow === currentWindow) notificationWindow = null;
       if (earnedNotificationQueue.length > 0) {
-        createNotificationWindow(earnedNotificationQueue.shift());
+        setImmediate(() => createNotificationWindow(earnedNotificationQueue.shift()));
         return;
       }
       if (shouldQuitApp()) app.quit();
     });
+    closeHandlerInstalled = true;
 
-    notificationWindow.webContents.on('console-message', (e, level, message, line, sourceID) => {
+    currentWindow.webContents.on('console-message', (e, level, message, line, sourceID) => {
       debug.log(message, sourceID, line);
     });
 
-    notificationWindow.loadFile(presetHtml);
+    closeTimeout = setTimeout(() => {
+      debug.warn('Notification window exceeded its display deadline');
+      if (!currentWindow.isDestroyed()) currentWindow.close();
+    }, NOTIFICATION_WINDOW_TIMEOUT_MS);
+    await currentWindow.loadFile(presetHtml);
   } catch (e) {
     debug.log(`Error creating notification window: ${e}`);
+    if (closeTimeout) clearTimeout(closeTimeout);
+    if (currentWindow && !currentWindow.isDestroyed()) currentWindow.destroy();
+    if (closeHandlerInstalled) return;
+    isNotificationShowing = false;
+    if (notificationWindow === currentWindow) notificationWindow = null;
+    if (earnedNotificationQueue.length > 0) setImmediate(() => createNotificationWindow(earnedNotificationQueue.shift()));
     if (shouldQuitApp()) app.quit();
   }
 }
@@ -1769,19 +1792,6 @@ function checkResources() {
   const source = path.join(resourcesPath, 'Source');
   copyFolderRecursive(source, path.join(userData, 'Source'));
 
-  if (!fs.existsSync(path.join(app.getPath('appData'), 'obs-studio', 'basic', 'profiles', 'AW'))) {
-    const profile = path.join(resourcesPath, 'obs', 'AW');
-    copyFolderRecursive(profile, path.join(app.getPath('appData'), 'obs-studio', 'basic', 'profiles', 'AW'));
-    const scenesPath = path.join(app.getPath('appData'), 'obs-studio', 'basic', 'scenes');
-    fs.mkdirSync(scenesPath, { recursive: true });
-    fs.copyFileSync(path.join(resourcesPath, 'obs', 'AW.json'), path.join(scenesPath, 'AW.json'));
-  }
-
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    path: path.join(manifest.config.debug ? path.join(__dirname, '../../') : path.dirname(process.execPath), 'nw/nw.exe'),
-    args: ['-config', 'watchdog.json'],
-  });
 }
 
 try {

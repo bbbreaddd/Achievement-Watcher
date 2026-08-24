@@ -6,6 +6,14 @@ const fs = require('fs');
 const request = require('request-zero');
 
 const debug = require('../util/log.js');
+const NETWORK_TIMEOUT_MS = 1200;
+
+function withTimeout(promise, timeout = NETWORK_TIMEOUT_MS) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Icon request timed out')), timeout)),
+  ]);
+}
 
 const cdnProviders = [
   'https://cdn.akamai.steamstatic.com/steam/apps/',
@@ -25,7 +33,7 @@ async function findWorkingLink(appid, basename) {
     for (const cdn of cdnProviders) {
       const url = `${cdn}${appid}/${basename}${ext}`;
       try {
-        const res = await request(url, { method: 'HEAD' });
+        const res = await withTimeout(request(url, { method: 'HEAD' }));
         if (res.code === 200) {
           const contentType = res.headers['content-type'];
           if (contentType) return url;
@@ -55,7 +63,7 @@ module.exports = async (url, appID) => {
     validUrl = url;
     try {
       new URL(url);
-      const res = await request(url, { method: 'HEAD' });
+      const res = await withTimeout(request(url, { method: 'HEAD' }));
       isValid = res.code !== 200 ? false : true;
       isValid = isValid ? res.headers['content-type'] : isValid;
     } catch (e) {}
@@ -74,6 +82,7 @@ module.exports = async (url, appID) => {
           : url
       );
 
+    if (!validUrl) return url;
     filename = path.parse(urlParser.parse(validUrl).pathname).base;
 
     filePath = path.join(cache, filename);
@@ -81,7 +90,7 @@ module.exports = async (url, appID) => {
     if (fs.existsSync(filePath)) {
       return filePath;
     } else {
-      return (await request.download(validUrl, cache, { validateFileSize: false })).path;
+      return (await withTimeout(request.download(validUrl, cache, { validateFileSize: false }), 3000)).path;
     }
   } catch (err) {
     if (err.code === 'ESIZEMISMATCH') {

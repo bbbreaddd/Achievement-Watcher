@@ -138,6 +138,11 @@ module.exports.load = async (cfg_file) => {
 
     //Transport
 
+    if (typeof options.notification_transport.chromium !== 'boolean') {
+      options.notification_transport.chromium = true;
+      fixFile = true;
+    }
+
     if (typeof options.notification_transport.toast !== 'boolean') {
       options.notification_transport.toast = true;
       fixFile = true;
@@ -311,6 +316,7 @@ module.exports.load = async (cfg_file) => {
         groupToast: false,
       },
       notification_transport: {
+        chromium: true,
         toast: true,
         winRT: true,
         balloon: true,

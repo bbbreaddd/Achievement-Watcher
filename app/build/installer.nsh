@@ -14,13 +14,6 @@ Var OBS_APPDATA
 !insertmacro MUI_PAGE_WELCOME
 
 
-Section "Close OBS if running"
-
-  ; Try to close OBS gracefully first
-  ExecWait 'taskkill /IM obs64.exe /T /F'
-
-SectionEnd
-
 Section "Install"
 
   ; Copy media, presets, view to your app's AppData
@@ -28,5 +21,4 @@ Section "Install"
   CreateDirectory "$APPDATA_MYAPP"
 
 SectionEnd
-
 

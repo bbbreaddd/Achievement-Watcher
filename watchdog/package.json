@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node watchdog.js",
+    "test": "node --test test/*.test.js",
     "clean": "npm prune --production",
     "prepare": "patch-package"
   },

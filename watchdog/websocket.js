@@ -20,11 +20,12 @@ module.exports = (option = {}) => {
   //Default values
   const options = {
     port: Number.isInteger(option.port) ? option.port : 8082,
-    host: option.host || null,
+    host: option.host || '127.0.0.1',
     ipv6Only: option.ipv6Only || false,
     timeout: Number.isInteger(option.timeout) ? option.timeout : 30000, //30sec
     ssl: option.ssl || false,
     auth: option.auth || null, //username:password
+    allowControlCommands: option.allowControlCommands === true,
   };
 
   //Creating a http server by ourself so we can use basic auth http and https with websocket
@@ -74,6 +75,7 @@ module.exports = (option = {}) => {
     //client identification
     client.id = req.headers['sec-websocket-key'];
     client.ip = req.connection.remoteAddress;
+    client.allowControlCommands = options.allowControlCommands;
     debug.log(`[${client.id}](${client.ip}) client connected`);
 
     //heartbeat
@@ -93,7 +95,6 @@ module.exports = (option = {}) => {
   });
 
   WebSocket.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') throw new Error(err.message);
     debug.error(`Server error: ${err}`);
   });
 
@@ -138,6 +139,16 @@ function incoming(message) {
       req = JSON.parse(message);
     } catch (err) {
       throw new Error(`request is not a valid JSON > ${err}`);
+    }
+
+    if (req.cmd !== 'test' && req.cmd !== 'toast-test' && req.cmd !== 'gntp-test') {
+      debug.warn(`WS[${this.id}] received unknown command`);
+      return;
+    }
+
+    if (!this.allowControlCommands) {
+      debug.warn(`WS[${this.id}] rejected control command`);
+      return;
     }
 
     if (req.cmd === 'test') {
@@ -203,8 +214,6 @@ function incoming(message) {
             })
           );
         });
-    } else {
-      debug.warn(`WS[${this.id}] received unknow command`);
     }
   } catch (err) {
     debug.error(`WS[${this.id}] ${err}`);

@@ -1,8 +1,7 @@
 'use strict';
 
 const path = require('path');
-const glob = require('fast-glob');
-const ffs = require('@xan105/fs');
+const fs = require('fs');
 
 let cache;
 
@@ -14,7 +13,10 @@ module.exports.scan = async () => {
   try {
     let data = [];
 
-    for (let file of await glob('([0-9])+.db', { cwd: cache, onlyFiles: true, absolute: false })) {
+    const files = await fs.promises.readdir(cache, { withFileTypes: true });
+    for (const entry of files) {
+      const file = entry.name;
+      if (!entry.isFile() || !/^\d+\.db$/.test(file)) continue;
       data.push({
         appid: file.replace('.db', ''),
         source: 'Achievement Watcher : Watchdog',
@@ -31,5 +33,5 @@ module.exports.scan = async () => {
 };
 
 module.exports.getAchievements = async (appID) => {
-  return JSON.parse(await ffs.readFile(path.join(cache, `${appID}.db`), 'utf8'));
+  return JSON.parse(await fs.promises.readFile(path.join(cache, `${appID}.db`), 'utf8'));
 };

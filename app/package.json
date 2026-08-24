@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/*.test.js",
     "native-rebuild": "call .\\node_modules\\.bin\\electron-rebuild.cmd",
     "clean": "npm prune --production",
     "prepare": "patch-package",
