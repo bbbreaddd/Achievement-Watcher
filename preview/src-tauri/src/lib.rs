@@ -3599,6 +3599,12 @@ pub fn run() {
                     &format!("Achievement overlay shortcut startup: {message}"),
                 );
             }
+            if let Err(message) = configure_watcher(app.handle(), &state, &startup_settings) {
+                notification_log(&state, &format!("Source watcher startup: {message}"));
+            }
+            if let Err(message) = dispatch_pending(app.handle(), &state) {
+                notification_log(&state, &format!("Pending notification startup: {message}"));
+            }
             let force_main_window = std::env::args_os().any(|argument| argument == "--show");
             if !cfg!(dev)
                 && !force_main_window
