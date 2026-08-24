@@ -2727,7 +2727,13 @@ fn steam_account_matches(configured: Option<&str>, account_id: &str) -> bool {
 }
 
 fn steam_id64(account_id: &str) -> u64 {
-    76_561_197_960_265_728 + account_id.parse::<u64>().unwrap_or_default()
+    const INDIVIDUAL_ACCOUNT_BASE: u64 = 76_561_197_960_265_728;
+    let value = account_id.parse::<u64>().unwrap_or_default();
+    if value >= INDIVIDUAL_ACCOUNT_BASE {
+        value
+    } else {
+        INDIVIDUAL_ACCOUNT_BASE + value
+    }
 }
 
 fn owned_steam_games(
@@ -3810,7 +3816,7 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{emulator_config_value, source_uses_steam_metadata};
+    use super::{emulator_config_value, source_uses_steam_metadata, steam_id64};
     use aw_core::SourceKind;
 
     #[test]
@@ -3832,5 +3838,11 @@ mod tests {
         assert!(source_uses_steam_metadata(SourceKind::SteamEmulator));
         assert!(!source_uses_steam_metadata(SourceKind::Gog));
         assert!(!source_uses_steam_metadata(SourceKind::Epic));
+    }
+
+    #[test]
+    fn accepts_account_ids_and_full_steam_ids() {
+        assert_eq!(steam_id64("430715348"), 76_561_198_390_981_076);
+        assert_eq!(steam_id64("76561198390981076"), 76_561_198_390_981_076);
     }
 }
