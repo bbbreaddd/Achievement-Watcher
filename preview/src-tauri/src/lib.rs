@@ -2896,6 +2896,41 @@ fn configure_watcher(
     Ok(())
 }
 
+fn start_background_baseline_scan(app: AppHandle) {
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let settings = match state.store.lock() {
+            Ok(store) => match store.load_settings() {
+                Ok(settings) => settings,
+                Err(message) => {
+                    notification_log(&state, &format!("Background scan settings: {message}"));
+                    return;
+                }
+            },
+            Err(message) => {
+                notification_log(&state, &format!("Background scan settings lock: {message}"));
+                return;
+            }
+        };
+        let locations: Vec<_> = settings
+            .source_locations
+            .iter()
+            .filter(|location| location.enabled && source_kind_enabled(&settings, location.kind))
+            .cloned()
+            .collect();
+        for path in source::discover_files(&locations) {
+            if let Err(message) = process_path(&app, &state, &path, true) {
+                notification_log(
+                    &state,
+                    &format!("Background scan skipped {}: {message}", path.display()),
+                );
+            }
+        }
+        let _ = dispatch_pending(&app, &state);
+        let _ = app.emit("library-changed", ());
+    });
+}
+
 fn start_steam_monitor(app: AppHandle) {
     std::thread::spawn(move || {
         let mut previous_app: Option<String> = None;
@@ -3606,14 +3641,14 @@ pub fn run() {
                 notification_log(&state, &format!("Pending notification startup: {message}"));
             }
             let force_main_window = std::env::args_os().any(|argument| argument == "--show");
-            if !cfg!(dev)
-                && !force_main_window
-                && startup_settings.start_minimized
-                && let Some(window) = app.get_webview_window("main")
-            {
+            let start_hidden = !cfg!(dev) && !force_main_window && startup_settings.start_minimized;
+            if start_hidden && let Some(window) = app.get_webview_window("main") {
                 window.destroy()?;
             } else if force_main_window || cfg!(dev) {
                 show_main_window(app.handle()).map_err(std::io::Error::other)?;
+            }
+            if start_hidden {
+                start_background_baseline_scan(app.handle().clone());
             }
             start_steam_monitor(app.handle().clone());
             start_process_monitor(app.handle().clone());
