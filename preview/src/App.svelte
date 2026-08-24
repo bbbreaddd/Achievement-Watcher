@@ -370,6 +370,20 @@
     }
   }
 
+  async function refreshMissingMetadata() {
+    try {
+      const updated = await invoke<number>('refresh_metadata', { gameId: null });
+      await refresh();
+      status = updated > 0
+        ? `Library information updated for ${updated} item${updated === 1 ? '' : 's'}`
+        : 'Library is up to date';
+    } catch (error) {
+      // Metadata is optional enrichment. A network or Steam Community failure
+      // must not turn an otherwise usable local library into a startup failure.
+      status = `Some game information could not be refreshed: ${String(error)}`;
+    }
+  }
+
   async function clearGameMetadata(game: GameSummary) {
     gameMenu = null;
     try {
@@ -601,10 +615,8 @@
         await detectSources(false, false);
         steamAccounts = await invoke<typeof steamAccounts>('steam_accounts');
         await scan(true);
-        status = 'Checking missing game information…';
-        await invoke<number>('refresh_metadata', { gameId: null });
-        await refresh();
-        status = 'Library is up to date';
+        status = 'Library is ready; checking missing game information…';
+        void refreshMissingMetadata();
         void checkUpdates(false);
       } catch (error) {
         status = `Startup failed: ${String(error)}`;
@@ -670,7 +682,7 @@
     </section>
   {:else}
     <section id="home" aria-labelledby="library-title">
-      <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{games.length}/{completedGames()}</strong> games</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
+      <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
 {#if games.length === 0}<div class="empty"><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if your folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); gameMenu = { game, x: event.clientX, y: event.clientY }; }} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="achievement-button" title={`View ${game.name} achievements`} aria-label={`View ${game.name} achievements`} onclick={(event) => { event.stopPropagation(); void openGame(game); }}><i class="fas fa-trophy"></i></button><button class="play-button" title={`Play ${game.name}`} aria-label={`Play ${game.name}`} onclick={(event) => { event.stopPropagation(); void launchGame(game); }}><i class="fas fa-play"></i></button><button class="config-button" title={`Configure ${game.name}`} aria-label={`Configure ${game.name}`} onclick={(event) => { event.stopPropagation(); configureGame(game); }}><i class="fas fa-tools"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><i class="source-badge" title={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}>{#if sourceIcon(game.sourceKind)}<img src={sourceIcon(game.sourceKind)!} alt="" />{:else}{sourceMark(game.sourceKind)}{/if}</i></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
