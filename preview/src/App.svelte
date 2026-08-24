@@ -41,6 +41,7 @@
   let achievementQuery = '';
   let unlockedCollapsed = false;
   let lockedCollapsed = false;
+  let hiddenCollapsed = false;
   let steamAccounts: Array<{ accountId: string; steamId: string; name: string; mostRecent: boolean; avatarPath?: string }> = [];
   let gameConfig: { game: GameSummary; executable: string; arguments: string } | null = null;
   let highlightedAchievement = '';
@@ -261,7 +262,9 @@
   }
 
   function visibleAchievementCount() {
-    return achievementRows(true).length + achievementRows(false).length;
+    return achievementRows(true).length
+      + achievementRows(false).length
+      + ((settings?.showHidden || revealHiddenForGame) ? achievementRows(false, true).length : 0);
   }
 
   function totalUnlocked() {
@@ -313,10 +316,10 @@
     await save();
   }
 
-  function achievementRows(achieved: boolean) {
+  function achievementRows(achieved: boolean, hiddenOnly = false) {
     const term = achievementQuery.trim().toLowerCase();
     return achievements.filter((achievement) => achievement.achieved === achieved
-      && (achieved || !achievement.hidden || settings?.showHidden || revealHiddenForGame)
+      && (achieved || achievement.hidden === hiddenOnly)
       && (!term
       || (achievement.displayName ?? achievement.achievementId).toLowerCase().includes(term)
       || (achievement.description ?? '').toLowerCase().includes(term)))
@@ -359,6 +362,7 @@
     achievementQuery = '';
     unlockedCollapsed = false;
     lockedCollapsed = false;
+    hiddenCollapsed = false;
     highlightedAchievement = achievementId;
     revealHiddenForGame = false;
     selectedGame = game;
@@ -996,23 +1000,25 @@
         </div>
       {/if}
       {#if achievements.length > 0 && (!achievementQuery || visibleAchievementCount() > 0)}
-      {#each [['Unlocked', true], ['Locked', false]] as group}
-        {@const rows = achievementRows(group[1] as boolean)}
-        {@const collapsed = group[1] ? unlockedCollapsed : lockedCollapsed}
-        {@const groupCount = achievements.filter((achievement) => achievement.achieved === (group[1] as boolean)).length}
-        {#if rows.length || (!achievementQuery && (group[1] || hiddenLockedCount() > 0))}
+      {#each [['Unlocked', true, false], ['Locked', false, false], ['Hidden', false, true]] as group}
+        {@const achieved = group[1] as boolean}
+        {@const hiddenOnly = group[2] as boolean}
+        {@const rows = achievementRows(achieved, hiddenOnly)}
+        {@const collapsed = achieved ? unlockedCollapsed : hiddenOnly ? hiddenCollapsed : lockedCollapsed}
+        {@const groupCount = achievements.filter((achievement) => achievement.achieved === achieved && (achieved || achievement.hidden === hiddenOnly)).length}
+        {#if (!hiddenOnly || settings?.showHidden || revealHiddenForGame) && (rows.length || (!achievementQuery && (achieved || (!hiddenOnly && hiddenLockedCount() > 0))))}
           <section class="achievement-group">
-            <h3><span><i class={group[1] ? 'fas fa-unlock' : 'fas fa-lock'}></i> {group[0]} <small>{groupCount}</small></span><span class="achievement-sort" role="group" aria-label={`Sort ${String(group[0]).toLowerCase()} achievements`}><button class:active={achievementSort === 'name'} aria-pressed={achievementSort === 'name'} title="Sort achievements alphabetically" aria-label="Sort achievements alphabetically" onclick={() => achievementSort = 'name'}><i class="fas fa-sort-alpha-down"></i></button>{#if group[1]}<button class:active={achievementSort === 'time'} aria-pressed={achievementSort === 'time'} title="Sort by unlock time" aria-label="Sort by unlock time" onclick={() => achievementSort = 'time'}><i class="far fa-clock"></i></button>{/if}{#if !group[1]}<button class:active={achievementSort === 'progress'} aria-pressed={achievementSort === 'progress'} title="Sort by progress" aria-label="Sort by progress" onclick={() => achievementSort = 'progress'}><i class="fas fa-percent"></i></button>{/if}<button class:active={achievementSort === 'rarity'} aria-pressed={achievementSort === 'rarity'} title="Sort by global rarity" aria-label="Sort by global rarity" onclick={() => achievementSort = 'rarity'}><i class="fas fa-gem"></i></button></span><button class="collapse-toggle" class:active={!collapsed} aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group[0]} achievements`} onclick={() => group[1] ? unlockedCollapsed = !unlockedCollapsed : lockedCollapsed = !lockedCollapsed}><i class="fas fa-chevron-right"></i></button></h3>
+            <h3><span><i class={achieved ? 'fas fa-unlock' : hiddenOnly ? 'fas fa-eye-slash' : 'fas fa-lock'}></i> {group[0]} <small>{groupCount}</small></span><span class="achievement-sort" role="group" aria-label={`Sort ${String(group[0]).toLowerCase()} achievements`}><button class:active={achievementSort === 'name'} aria-pressed={achievementSort === 'name'} title="Sort achievements alphabetically" aria-label="Sort achievements alphabetically" onclick={() => achievementSort = 'name'}><i class="fas fa-sort-alpha-down"></i></button>{#if achieved}<button class:active={achievementSort === 'time'} aria-pressed={achievementSort === 'time'} title="Sort by unlock time" aria-label="Sort by unlock time" onclick={() => achievementSort = 'time'}><i class="far fa-clock"></i></button>{/if}{#if !achieved}<button class:active={achievementSort === 'progress'} aria-pressed={achievementSort === 'progress'} title="Sort by progress" aria-label="Sort by progress" onclick={() => achievementSort = 'progress'}><i class="fas fa-percent"></i></button>{/if}<button class:active={achievementSort === 'rarity'} aria-pressed={achievementSort === 'rarity'} title="Sort by global rarity" aria-label="Sort by global rarity" onclick={() => achievementSort = 'rarity'}><i class="fas fa-gem"></i></button></span><button class="collapse-toggle" class:active={!collapsed} aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${group[0]} achievements`} onclick={() => achieved ? unlockedCollapsed = !unlockedCollapsed : hiddenOnly ? hiddenCollapsed = !hiddenCollapsed : lockedCollapsed = !lockedCollapsed}><i class="fas fa-chevron-right"></i></button></h3>
             {#if !collapsed}<ul>
-              {#if !achievementQuery && group[1] && rows.length === 0}<li class="achievement-notice"><i class="fas fa-frown-open"></i><strong>{t('noneUnlocked', 'No achievement unlocked yet')}</strong><span>{t('play', 'Start playing!')}</span></li>{/if}
+              {#if !achievementQuery && achieved && rows.length === 0}<li class="achievement-notice"><i class="fas fa-frown-open"></i><strong>{t('noneUnlocked', 'No achievement unlocked yet')}</strong><span>{t('play', 'Start playing!')}</span></li>{/if}
               {#each rows as achievement}
                 <li><article data-achievement-id={achievement.achievementId} class:highlight={highlightedAchievement === achievement.achievementId} class:unlocked={achievement.achieved} class:rare={(achievement.globalPercentHundredths ?? 10_001) <= 1000} class="achievement-row">
                   <div class="achievement-icon"><span><i class={achievement.achieved ? 'fas fa-trophy' : 'fas fa-lock'}></i></span>{#if achievement.icon}<img src={imageUrl(achievement.icon)} alt="" onerror={(event) => event.currentTarget.remove()} />{/if}</div>
-                  <div class="achievement-content"><h4>{achievement.displayName ?? achievement.achievementId}</h4><p>{achievement.hidden && !achievement.achieved && !settings?.showHidden ? t('revealedOnceUnlocked', 'Details for this achievement will be revealed once unlocked') : (achievement.description ?? 'No description available.')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<div class="achievement-progress" role="progressbar" aria-label={`${achievement.displayName ?? achievement.achievementId} progress`} aria-valuemin="0" aria-valuemax={achievement.maxProgress} aria-valuenow={achievement.currentProgress}><i style={`width:${Math.min(100, achievement.currentProgress / achievement.maxProgress * 100)}%`}></i><span>{achievement.currentProgress} / {achievement.maxProgress}</span></div>{/if}</div>
+                  <div class="achievement-content"><h4>{achievement.displayName ?? achievement.achievementId}</h4><p>{achievement.hidden && !achievement.achieved && !settings?.showHidden && !revealHiddenForGame ? t('revealedOnceUnlocked', 'Details for this achievement will be revealed once unlocked') : (achievement.description ?? 'No description available.')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<div class="achievement-progress" role="progressbar" aria-label={`${achievement.displayName ?? achievement.achievementId} progress`} aria-valuemin="0" aria-valuemax={achievement.maxProgress} aria-valuenow={achievement.currentProgress}><i style={`width:${Math.min(100, achievement.currentProgress / achievement.maxProgress * 100)}%`}></i><span>{achievement.currentProgress} / {achievement.maxProgress}</span></div>{/if}</div>
                   <div class="achievement-state">{#if achievement.originSourceId}<span class="achievement-origin-label" title={sourceDescription(kindForSource(achievement.originSourceId))}><SourceBadge source={kindForSource(achievement.originSourceId)} origin />{sourceLabel(kindForSource(achievement.originSourceId))}</span>{/if}{#if achievement.trophyGrade}<i class={`trophy-grade ${achievement.trophyGrade} fas fa-trophy`} title={`${achievement.trophyGrade} trophy`}></i>{/if}{#if achievement.achieved}<strong>{t('unlocked', 'Unlocked')}</strong>{#if achievement.unlockTime > 0}<time title={new Date(achievement.unlockTime * 1000).toLocaleString()}>{formatUnlockTime(achievement.unlockTime)}</time>{/if}{:else}<span>{t('locked', 'Locked')}</span>{/if}{#if achievement.globalPercentHundredths !== undefined}<small title="Global unlock percentage reported by this achievement source"><i class="fas fa-gem"></i> {achievement.globalPercentHundredths === 0 ? '<0.01' : (achievement.globalPercentHundredths / 100).toFixed(2)}% {t('globalStat', 'of players have this')}</small>{/if}</div>
                 </article></li>
               {/each}
-            </ul>{#if !group[1] && !settings?.showHidden && !revealHiddenForGame && hiddenLockedCount() > 0}<div class="hidden-disclaimer"><span><i class="fas fa-eye-slash"></i> {hiddenLockedCount()} {t('hiddenRemain', 'hidden achievements remaining')}</span><button onclick={() => revealHiddenForGame = true}>{t('settings.common.show', 'Show')} hidden achievements</button></div>{/if}{/if}
+            </ul>{#if !achieved && !hiddenOnly && !settings?.showHidden && !revealHiddenForGame && hiddenLockedCount() > 0}<div class="hidden-disclaimer"><span><i class="fas fa-eye-slash"></i> {hiddenLockedCount()} {t('hiddenRemain', 'hidden achievements remaining')}</span><button onclick={() => revealHiddenForGame = true}>{t('settings.common.show', 'Show')} hidden achievements</button></div>{/if}{/if}
           </section>
         {/if}
       {/each}
