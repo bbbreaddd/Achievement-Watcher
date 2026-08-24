@@ -37,9 +37,9 @@
 
   function presetSize() {
     const sizes: Record<string, [number, number]> = {
-      default: [450, 150], original: [450, 150], ps4: [400, 200], ps5: [400, 150],
+      default: [420, 110], original: [420, 110], ps4: [400, 200], ps5: [400, 150],
       ps5_enhanced: [450, 150], xbox_one: [600, 160], xbox_360: [600, 150],
-      raposo: [400, 150], smooth_pop: [400, 150], xqjan: [450, 150], steam: [474, 128],
+      raposo: [400, 150], smooth_pop: [400, 150], xqjan: [450, 150], steam: [382, 106],
     };
     return sizes[preset] ?? sizes.steam;
   }
@@ -63,7 +63,7 @@
   }
 
   function usesOriginalPreset() {
-    return Boolean(!presetFailed && event && event.kind === 'unlock' && !event.eventKey.startsWith('playtime') && presetDocument());
+    return Boolean(!presetFailed && event && event.kind === 'unlock' && !event.eventKey.startsWith('playtime') && preset !== 'default' && preset !== 'original' && presetDocument());
   }
 
   function sendPreset() {
