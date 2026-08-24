@@ -809,6 +809,8 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
         }
     }
     for game in games.values_mut() {
+        let catalog_total = store.catalog_achievements(&game.game_id).map_err(error)?.len() as u32;
+        game.total = game.total.max(catalog_total);
         if let Some((name, icon)) = store.game_metadata(&game.game_id).map_err(error)? {
             game.name = name;
             if icon.is_some() {
@@ -1446,6 +1448,22 @@ fn list_achievements(
             .filter(|item| item.source_id == source_id && item.game_id == game_id)
             .collect()
     };
+    // Progress files from several emulators contain only unlocked entries.
+    // Treat the cached schema as the authoritative list and overlay the
+    // selected source's progress, rather than hiding every unlisted lock.
+    if source_id != "catalog" {
+        let existing: HashSet<_> = observations
+            .iter()
+            .map(|item| item.achievement_id.to_ascii_lowercase())
+            .collect();
+        for mut achievement in store.catalog_achievements(&game_id).map_err(error)? {
+            if existing.contains(&achievement.achievement_id.to_ascii_lowercase()) {
+                continue;
+            }
+            achievement.source_id = source_id.clone();
+            observations.push(achievement);
+        }
+    }
     store
         .enrich_observations(&mut observations)
         .map_err(error)?;
