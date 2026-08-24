@@ -38,10 +38,19 @@ struct AppState {
     watcher: Mutex<Option<RecommendedWatcher>>,
     awaiting_overlay: Mutex<HashSet<i64>>,
     current_overlay: Mutex<Option<NotificationEvent>>,
+    pending_open_game: Mutex<Option<OpenGameRequest>>,
     launched_games: Mutex<HashSet<String>>,
     game_bar: game_bar::GameBarBridge,
     websocket: websocket::Bridge,
     data_dir: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenGameRequest {
+    source_id: String,
+    game_id: String,
+    achievement_id: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -2544,18 +2553,22 @@ fn open_notification_game(app: AppHandle, state: State<'_, AppState>) -> Command
         .map_err(lock_error)?
         .clone()
         .ok_or_else(|| "No notification is currently open".to_string())?;
+    let request = OpenGameRequest {
+        source_id: event.observation.source_id,
+        game_id: event.observation.game_id,
+        achievement_id: event.observation.achievement_id,
+    };
+    *state.pending_open_game.lock().map_err(lock_error)? = Some(request.clone());
     show_main_window(&app)?;
-    app.emit_to(
-        "main",
-        "open-game",
-        serde_json::json!({
-            "sourceId": event.observation.source_id,
-            "gameId": event.observation.game_id,
-            "achievementId": event.observation.achievement_id,
-        }),
-    )
-    .map_err(error)?;
+    // This event makes an already-open library react immediately. A newly
+    // created WebView consumes the persisted request once its listener exists.
+    let _ = app.emit_to("main", "open-game", request);
     close_notification(app, state)
+}
+
+#[tauri::command]
+fn take_pending_open_game(state: State<'_, AppState>) -> CommandResult<Option<OpenGameRequest>> {
+    Ok(state.pending_open_game.lock().map_err(lock_error)?.take())
 }
 
 #[tauri::command]
@@ -3628,6 +3641,7 @@ pub fn run() {
                 watcher: Mutex::new(None),
                 awaiting_overlay: Mutex::new(HashSet::new()),
                 current_overlay: Mutex::new(None),
+                pending_open_game: Mutex::new(None),
                 launched_games: Mutex::new(HashSet::new()),
                 game_bar: game_bar::GameBarBridge::start(),
                 websocket: websocket::Bridge::default(),
@@ -3746,6 +3760,7 @@ pub fn run() {
             current_notification,
             close_notification,
             open_notification_game,
+            take_pending_open_game,
             report_notification_error,
             capture_screenshot,
         ])
