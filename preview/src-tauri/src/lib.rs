@@ -3387,7 +3387,13 @@ fn show_overlay(
             .unwrap_or_default();
         let scale = settings.notification_scale_percent.clamp(50, 150) as f64 / 100.0;
         let (width, height) = notification_preset_size(&settings.notification_preset);
-        WebviewWindowBuilder::new(app, "notification", WebviewUrl::App("index.html".into()))
+        // Keep the URL marker as a fallback for WebView runtimes that expose
+        // the main label briefly while a dynamically-created window starts.
+        WebviewWindowBuilder::new(
+            app,
+            "notification",
+            WebviewUrl::App("index.html?view=notification".into()),
+        )
             .title("Achievement unlocked")
             .inner_size(width * scale, height * scale)
             .decorations(false)
