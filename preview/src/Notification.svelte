@@ -82,8 +82,13 @@
     scalePercent = settings.scalePercent;
   }
 
-  async function showEvent(payload: NotificationRenderRequest) {
+  function clearCloseTimer() {
     window.clearTimeout(closeTimer);
+    closeTimer = undefined;
+  }
+
+  async function showEvent(payload: NotificationRenderRequest) {
+    clearCloseTimer();
     applyPresentation(payload.presentation, payload.presetConfig);
     event = payload.event;
     presetFailed = false;
@@ -117,11 +122,14 @@
   }
 
   async function close() {
+    clearCloseTimer();
     active = false;
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
     await invoke('close_notification');
   }
 
   async function openGame() {
+    clearCloseTimer();
     active = false;
     await invoke('open_notification_game');
   }
@@ -152,14 +160,16 @@
     return () => {
       disposed = true;
       unlisten?.();
-      window.clearTimeout(closeTimer);
+      clearCloseTimer();
       window.removeEventListener('message', receivePresetMessage);
     };
   });
 </script>
 
-<div class="notification-stage" style={`width:${presetConfig.width}px;height:${presetConfig.height}px;zoom:${scalePercent / 100}`}>{#if usesOriginalPreset()}<iframe bind:this={presetFrame} class="original-preset-frame" src={presetDocument()} title="Achievement notification" onload={presetLoaded} onerror={presetLoadFailed}></iframe><button class="notification-close preset-close" aria-label="Close notification" onclick={close}>×</button>{:else}<div class:active class:original={preset === 'original' || preset === 'default'} class:ps4={preset === 'ps4'} class:ps5={preset === 'ps5' || preset === 'ps5_enhanced'} class:ps5enhanced={preset === 'ps5_enhanced'} class:xbox={preset === 'xbox_one' || preset === 'xbox_360'} class:xbox360={preset === 'xbox_360'} class:smooth={preset === 'smooth_pop'} class:raposo={preset === 'raposo'} class:xqjan={preset === 'xqjan'} class="notification-shell" role="button" tabindex="0" aria-label="Open achievement" onclick={openGame} onkeydown={(keyboardEvent) => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') void openGame(); }}>
-  <button class="notification-close" aria-label="Close notification" onclick={(mouseEvent) => { mouseEvent.stopPropagation(); void close(); }}>×</button>
+<svelte:window onkeydown={(keyboardEvent) => { if (keyboardEvent.key === 'Escape') void close().catch(reportError); }} />
+<div class="notification-stage" style={`width:${presetConfig.width}px;height:${presetConfig.height}px;zoom:${scalePercent / 100}`}>{#if usesOriginalPreset()}<iframe bind:this={presetFrame} class="original-preset-frame" src={presetDocument()} title="Achievement notification" onload={presetLoaded} onerror={presetLoadFailed}></iframe><button class="notification-close preset-close" aria-label="Close notification" onclick={() => close().catch(reportError)}>×</button>{:else}<div class:active class:original={preset === 'original' || preset === 'default'} class:ps4={preset === 'ps4'} class:ps5={preset === 'ps5' || preset === 'ps5_enhanced'} class:ps5enhanced={preset === 'ps5_enhanced'} class:xbox={preset === 'xbox_one' || preset === 'xbox_360'} class:xbox360={preset === 'xbox_360'} class:smooth={preset === 'smooth_pop'} class:raposo={preset === 'raposo'} class:xqjan={preset === 'xqjan'} class="notification-shell">
+  <button class="notification-open" aria-label="Open achievement" onclick={() => openGame().catch(reportError)}></button>
+  <button class="notification-close" aria-label="Close notification" onclick={(mouseEvent) => { mouseEvent.stopPropagation(); void close().catch(reportError); }}>×</button>
   <div class="achievement-mark"><span>◆</span>{#if event?.observation.icon}<img src={imageUrl(event.observation.icon)} alt="" onerror={(imageEvent) => imageEvent.currentTarget.remove()} />{/if}</div>
   <div class="notification-copy">
     <span>{notificationHeading()}</span>

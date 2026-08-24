@@ -44,13 +44,22 @@
     message = achievements.length ? '' : 'No achievements found for this game';
   }
 
+  async function reload() {
+    message = 'Loading achievements…';
+    try {
+      await load();
+    } catch (error) {
+      message = String(error);
+    }
+  }
+
   onMount(() => {
     let unlisten: (() => void) | undefined;
     void (async () => {
       try {
-        await load();
+        await reload();
         await window.show();
-        unlisten = await listen('library-changed', () => { void load(); });
+        unlisten = await listen('library-changed', () => { void reload(); });
       } catch (error) {
         message = String(error);
         await window.show();
@@ -64,10 +73,10 @@
   <header data-tauri-drag-region>
     <strong>{game?.name ?? 'Achievements Overlay'}</strong>
     {#if game}<span>{game.unlocked} / {game.total}</span>{/if}
-    <button title="Close overlay" aria-label="Close overlay" onclick={() => invoke('close_achievement_overlay')}>×</button>
+    <button title="Close overlay" aria-label="Close overlay" onclick={() => invoke('close_achievement_overlay').catch((error) => message = `Could not close the overlay: ${String(error)}`)}>×</button>
   </header>
   {#if message}<div class="overlay-message">{message}</div>{:else}
-  <div class="overlay-head"><span>Icon</span><button onclick={() => cycle('name')}>Achievement {sort === 'name' ? (direction > 0 ? '↑' : '↓') : ''}</button><button onclick={() => cycle('status')}>Status {sort === 'status' ? (direction > 0 ? '↑' : '↓') : ''}</button></div>
-  <div class="overlay-rows">{#each sortedRows() as achievement}<article class:unlocked={achievement.achieved}><div class="achievement-icon"><span><i class="fas fa-lock"></i></span>{#if achievement.icon}<img src={imageUrl(achievement.icon)} alt="" onerror={(event) => event.currentTarget.remove()} />{/if}</div><div><strong>{achievement.hidden && !achievement.achieved ? 'Hidden achievement' : (achievement.displayName ?? achievement.achievementId)}</strong><p>{achievement.hidden && !achievement.achieved ? 'Details will be revealed once unlocked' : (achievement.description ?? '')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<small>Progress: {achievement.currentProgress} / {achievement.maxProgress}</small>{/if}</div><div class="overlay-state"><b>{achievement.achieved ? 'Unlocked' : 'Locked'}</b>{#if achievement.achieved && achievement.unlockTime > 0}<time>{new Date(achievement.unlockTime * 1000).toLocaleString()}</time>{/if}</div></article>{/each}</div>
+  <div class="overlay-head"><span>Icon</span><button title="Sort by achievement name" aria-label="Sort by achievement name" onclick={() => cycle('name')}>Achievement {sort === 'name' ? (direction > 0 ? '↑' : '↓') : ''}</button><button title="Sort by unlock status" aria-label="Sort by unlock status" onclick={() => cycle('status')}>Status {sort === 'status' ? (direction > 0 ? '↑' : '↓') : ''}</button></div>
+  <div class="overlay-rows">{#each sortedRows() as achievement}<article class:unlocked={achievement.achieved}><div class="achievement-icon"><span><i class={achievement.achieved ? 'fas fa-trophy' : 'fas fa-lock'}></i></span>{#if achievement.icon}<img src={imageUrl(achievement.icon)} alt="" onerror={(event) => event.currentTarget.remove()} />{/if}</div><div><strong>{achievement.hidden && !achievement.achieved ? 'Hidden achievement' : (achievement.displayName ?? achievement.achievementId)}</strong><p>{achievement.hidden && !achievement.achieved ? 'Details will be revealed once unlocked' : (achievement.description ?? '')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<small>Progress: {achievement.currentProgress} / {achievement.maxProgress}</small>{/if}</div><div class="overlay-state"><b>{achievement.achieved ? 'Unlocked' : 'Locked'}</b>{#if achievement.achieved && achievement.unlockTime > 0}<time>{new Date(achievement.unlockTime * 1000).toLocaleString()}</time>{/if}</div></article>{/each}</div>
   {/if}
 </div>
