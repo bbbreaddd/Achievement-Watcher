@@ -20,6 +20,7 @@
   let settingsSnapshot: AppSettings | null = null;
   let status = 'Preparing local library…';
   let startupError = '';
+  let liveUpdateErrors: string[] = [];
   let settingsError = '';
   let initializing = true;
   let scanning = false;
@@ -391,7 +392,7 @@
   }
 
   function displayedStatus() {
-    return operationMessage(status, operation);
+    return operationMessage(status, operation, liveUpdateErrors);
   }
 
   async function addSource(kind: SourceKind) {
@@ -776,7 +777,8 @@
         if (disposed) unlisten();
         else cleanup.push(unlisten);
       } catch (error) {
-        status = `Some live updates are unavailable: ${String(error)}`;
+        liveUpdateErrors = [...new Set([...liveUpdateErrors, event])];
+        console.error(`Could not register ${event}:`, error);
       }
     };
     void register('library-changed', () => { void refresh().catch((error) => { status = `Library refresh failed: ${String(error)}`; }); });
