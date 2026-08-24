@@ -1916,14 +1916,24 @@ fn refresh_metadata(
     let mut updated = 0;
     for (game_id, source_kind) in games {
         if source_kind == aw_core::SourceKind::Epic {
-            if import_epic_metadata(&agent, &state, &game_id)? {
-                updated += 1;
+            match import_epic_metadata(&agent, &state, &game_id) {
+                Ok(true) => updated += 1,
+                Ok(false) => {}
+                Err(message) => notification_log(
+                    &state,
+                    &format!("Epic metadata skipped {game_id}: {message}"),
+                ),
             }
             continue;
         }
         if source_kind == aw_core::SourceKind::Gog {
-            if import_gog_metadata(&agent, &state, &game_id)? {
-                updated += 1;
+            match import_gog_metadata(&agent, &state, &game_id) {
+                Ok(true) => updated += 1,
+                Ok(false) => {}
+                Err(message) => notification_log(
+                    &state,
+                    &format!("GOG metadata skipped {game_id}: {message}"),
+                ),
             }
             continue;
         }
@@ -1962,11 +1972,25 @@ fn refresh_metadata(
                 updated += 1;
             }
         }
-        if needs_achievements && import_community_schema(&agent, &state, &game_id)? {
-            updated += 1;
+        if needs_achievements {
+            match import_community_schema(&agent, &state, &game_id) {
+                Ok(true) => updated += 1,
+                Ok(false) => {}
+                Err(message) => notification_log(
+                    &state,
+                    &format!("Steam achievement metadata skipped {game_id}: {message}"),
+                ),
+            }
         }
-        if needs_global_percentages && import_global_percentages(&agent, &state, &game_id)? {
-            updated += 1;
+        if needs_global_percentages {
+            match import_global_percentages(&agent, &state, &game_id) {
+                Ok(true) => updated += 1,
+                Ok(false) => {}
+                Err(message) => notification_log(
+                    &state,
+                    &format!("Steam rarity metadata skipped {game_id}: {message}"),
+                ),
+            }
         }
     }
     if updated > 0 {
