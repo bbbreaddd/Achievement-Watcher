@@ -1,7 +1,7 @@
 use aw_core::NotificationEvent;
 use std::{
     io::ErrorKind,
-    net::{TcpListener, TcpStream},
+    net::{IpAddr, TcpListener, TcpStream},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -24,6 +24,9 @@ pub struct Bridge {
 
 impl Bridge {
     pub fn configure(&self, enabled: bool, host: &str, port: u16) -> Result<(), String> {
+        if enabled {
+            validate_address(host, port)?;
+        }
         let mut running = self.running.lock().map_err(|error| error.to_string())?;
         let address = format!("{host}:{port}");
         if enabled
@@ -107,6 +110,24 @@ impl Bridge {
     }
 }
 
+pub fn validate_address(host: &str, port: u16) -> Result<(), String> {
+    if !is_loopback_host(host) {
+        return Err("The WebSocket listener must use localhost or a loopback address".into());
+    }
+    if port == 0 {
+        return Err("The WebSocket listener port must be between 1 and 65535".into());
+    }
+    Ok(())
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
 impl Drop for Bridge {
     fn drop(&mut self) {
         if let Ok(mut running) = self.running.lock()
@@ -114,5 +135,19 @@ impl Drop for Bridge {
         {
             running.stop.store(true, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_loopback_host;
+
+    #[test]
+    fn accepts_only_local_websocket_hosts() {
+        assert!(is_loopback_host("localhost"));
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("[::1]"));
+        assert!(!is_loopback_host("0.0.0.0"));
+        assert!(!is_loopback_host("192.168.1.10"));
     }
 }

@@ -741,6 +741,7 @@ fn save_settings_sync(
     state: &State<'_, AppState>,
     settings: AppSettings,
 ) -> CommandResult<SettingsApplyResult> {
+    validate_settings(&settings)?;
     let previous = state
         .store
         .lock()
@@ -770,35 +771,52 @@ fn save_settings_sync(
             &settings.websocket_host,
             settings.websocket_port,
         )?;
+        configure_watcher(app, state, &settings)?;
         state
             .store
             .lock()
             .map_err(lock_error)?
             .save_settings(&settings)
-            .map_err(error)?;
-        configure_watcher(app, state, &settings)
+            .map_err(error)
     };
 
     if let Err(message) = apply() {
-        // Applying settings touches several independent Windows services. Put
-        // every one back on the previous configuration before reporting the
-        // failure so Save never leaves a half-applied runtime behind.
-        let _ = state
+        let mut rollback_errors = Vec::new();
+        if let Err(rollback_error) = state
             .store
             .lock()
             .map_err(lock_error)
-            .and_then(|store| store.save_settings(&previous).map_err(error));
-        let _ = configure_overlay_shortcut(app, &previous);
-        if !cfg!(dev) {
-            let _ = registry::configure_startup(previous.run_at_login);
+            .and_then(|store| store.save_settings(&previous).map_err(error))
+        {
+            rollback_errors.push(format!("saved settings: {rollback_error}"));
         }
-        let _ = state.websocket.configure(
+        if let Err(rollback_error) = configure_overlay_shortcut(app, &previous) {
+            rollback_errors.push(format!("overlay shortcut: {rollback_error}"));
+        }
+        if !cfg!(dev)
+            && let Err(rollback_error) = registry::configure_startup(previous.run_at_login)
+        {
+            rollback_errors.push(format!("startup registration: {rollback_error}"));
+        }
+        if let Err(rollback_error) = state.websocket.configure(
             previous.websocket_enabled,
             &previous.websocket_host,
             previous.websocket_port,
+        ) {
+            rollback_errors.push(format!("WebSocket listener: {rollback_error}"));
+        }
+        if let Err(rollback_error) = configure_watcher(app, state, &previous) {
+            rollback_errors.push(format!("source watcher: {rollback_error}"));
+        }
+        if rollback_errors.is_empty() {
+            return Err(message);
+        }
+        let failure = format!(
+            "{message}. Some previous settings could not be restored: {}",
+            rollback_errors.join("; ")
         );
-        let _ = configure_watcher(app, state, &previous);
-        return Err(message);
+        notification_log(state, &format!("Settings rollback: {failure}"));
+        return Err(failure);
     }
 
     let _ = app.emit("library-changed", ());
@@ -806,6 +824,17 @@ fn save_settings_sync(
         library_changed: previous != settings,
         scan_required,
     })
+}
+
+fn validate_settings(settings: &AppSettings) -> CommandResult<()> {
+    if settings.achievement_overlay_enabled && settings.achievement_overlay_hotkey.trim().is_empty()
+    {
+        return Err("The achievement overlay shortcut cannot be empty".into());
+    }
+    if settings.websocket_enabled {
+        websocket::validate_address(&settings.websocket_host, settings.websocket_port)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

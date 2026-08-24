@@ -26,6 +26,7 @@ export interface AppSettings {
   skippedUpdateVersion?: string;
   blacklistedGameIds: string[];
   gameLaunchConfigs: Record<string, { executable: string; arguments: string }>;
+  showPlayButton: boolean;
   notificationMode: NotificationMode;
   notificationEnabled: boolean;
   notifyOnProgress: boolean;
@@ -51,7 +52,6 @@ export interface AppSettings {
   customActionArguments: string;
   customActionWorkingDirectory?: string;
   customActionHideWindow: boolean;
-  notificationDurationMs: number;
   notificationDurationPercent: number;
   notificationScalePercent: number;
   gameBarEnabled: boolean;
