@@ -17,6 +17,8 @@
   let settings: AppSettings | null = null;
   let settingsSnapshot: AppSettings | null = null;
   let status = 'Preparing local library…';
+  let startupError = '';
+  let settingsError = '';
   let initializing = true;
   let scanning = false;
   let view: 'library' | 'settings' = 'library';
@@ -318,6 +320,16 @@
     }
   }
 
+  async function testNotificationKind(command: 'test_progress_notification' | 'test_playtime_notification', label: string) {
+    try {
+      const presentation = settings ? notificationPresentation(settings) : undefined;
+      await invoke(command, { presentation });
+      status = `${label} notification test sent`;
+    } catch (error) {
+      status = `${label} notification test failed: ${String(error)}`;
+    }
+  }
+
   async function refresh() {
     games = await invoke<GameSummary[]>('list_games');
   }
@@ -366,6 +378,7 @@
 
   async function persistSettings() {
     if (!settings) return false;
+    settingsError = '';
     try {
       const result = await invoke<SettingsApplyResult>('save_settings', { settings });
       if (result.scanRequired) void scan(true);
@@ -373,7 +386,8 @@
       status = 'Settings saved';
       return true;
     } catch (error) {
-      status = `Could not save settings: ${String(error)}`;
+      settingsError = `Settings were not saved. ${String(error)}`;
+      status = 'Could not save settings';
       return false;
     }
   }
@@ -396,6 +410,7 @@
       return;
     }
     settingsSnapshot = cloneSettings(settings);
+    settingsError = '';
     settingsTab = 'general';
     view = 'settings';
   }
@@ -679,6 +694,36 @@
     }
   }
 
+  async function initializeApp() {
+    initializing = true;
+    startupError = '';
+    status = 'Loading saved library…';
+    try {
+      await invoke('import_legacy').catch((error) => {
+        status = `Legacy import skipped: ${String(error)}`;
+      });
+      settings = await invoke<AppSettings>('load_settings');
+      applyLanguage(settings.language);
+      await Promise.all([loadDiagnostics(), loadAvatar()]);
+      await refresh();
+      initializing = false;
+      status = games.length ? 'Refreshing library…' : 'Searching for achievement data…';
+      void (async () => {
+        await detectSources(false, false);
+        steamAccounts = await invoke<typeof steamAccounts>('steam_accounts').catch(() => []);
+        void refreshMissingMetadata();
+        await scan(true);
+        status = 'Library is ready';
+        void checkUpdates(false);
+      })();
+    } catch (error) {
+      startupError = String(error);
+      status = 'Startup did not finish';
+    } finally {
+      initializing = false;
+    }
+  }
+
   onMount(() => {
     let disposed = false;
     const cleanup: Array<() => void> = [];
@@ -696,28 +741,7 @@
         void consumeOpenGameRequest(payload);
       }));
       await consumeOpenGameRequest();
-      try {
-        await invoke('import_legacy');
-        settings = await invoke<AppSettings>('load_settings');
-        await loadDiagnostics();
-        applyLanguage(settings.language);
-        await loadAvatar();
-        await refresh();
-        // The saved library is ready to browse at this point. Source discovery,
-        // metadata enrichment, and baseline scanning may continue afterward.
-        initializing = false;
-        status = games.length ? 'Refreshing library…' : 'Searching for achievement data…';
-        await detectSources(false, false);
-        steamAccounts = await invoke<typeof steamAccounts>('steam_accounts');
-        void refreshMissingMetadata();
-        await scan(true);
-        status = 'Library is ready';
-        void checkUpdates(false);
-      } catch (error) {
-        status = `Startup failed: ${String(error)}`;
-      } finally {
-        initializing = false;
-      }
+      await initializeApp();
       if (disposed) cleanup.splice(0).forEach((unlisten) => unlisten());
     })();
     return () => {
@@ -789,7 +813,7 @@
       <div id="user-info"><button class="avatar" class:squared={settings?.profileAvatarSquared} title="Choose profile avatar (right-click for options)" aria-label="Choose profile avatar" onclick={chooseAvatar} oncontextmenu={(event) => { event.preventDefault(); event.stopPropagation(); avatarMenu = { x: event.clientX, y: event.clientY }; }}><img src={avatarData || defaultAvatar} alt="" /></button><div class="info"><h1>{settings?.username || 'Achievement Watcher'}</h1><ul><li><i class="fas fa-trophy"></i> <strong>{totalUnlocked()}</strong> unlocked</li><li><i class="fas fa-gamepad"></i> <strong>{completedGames()}/{games.length}</strong> games completed</li><li><i class="fas fa-cookie-bite"></i> <strong>{averageCompletion()}%</strong> average</li></ul>{#if trophyTotal('platinum') + trophyTotal('gold') + trophyTotal('silver') + trophyTotal('bronze') > 0}<ul class="trophy-totals" aria-label="PlayStation trophies"><li class="platinum" title="Platinum trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('platinum')}</strong></li><li class="gold" title="Gold trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('gold')}</strong></li><li class="silver" title="Silver trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('silver')}</strong></li><li class="bronze" title="Bronze trophies"><i class="fas fa-trophy"></i> <strong>{trophyTotal('bronze')}</strong></li></ul>{/if}</div></div>
       <div class="library-tools"><div id="search-bar"><span><i class="fas fa-search"></i></span><input class:has={query.length > 0} type="search" bind:value={query} placeholder="Search games" aria-label="Search games" /></div><select bind:value={libraryFilter} aria-label="Filter games"><option value="all">All games</option><option value="tracked">Tracked</option><option value="cached">Cached information</option></select><button class="refresh" title="Refresh library" aria-label="Refresh library" onclick={() => scan(false)} disabled={scanning}><i class="fas fa-sync-alt"></i></button><div id="sort-box" aria-label="Sort games"><button class:active={librarySort === 'name'} title="Sort alphabetically" aria-label="Sort alphabetically" onclick={() => librarySort = 'name'}><i class="fas fa-sort-alpha-down"></i></button><button class:active={librarySort === 'progress'} title="Sort by completion" aria-label="Sort by completion" onclick={() => librarySort = 'progress'}><i class="fas fa-sort-numeric-down"></i><i class="fas fa-percent"></i></button><button class:active={librarySort === 'recent'} title="Sort by most recent unlock" aria-label="Sort by most recent unlock" onclick={() => librarySort = 'recent'}><i class="fas fa-sort-numeric-down"></i><i class="far fa-clock"></i></button></div></div>
       <div id="game-list" class:view-portrait={settings?.thumbnailPortrait}>
-{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => showGameMenu(event, game)} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="game-menu-button" title={`More actions for ${game.name}`} aria-label={`More actions for ${game.name}`} onclick={(event) => showGameMenu(event, game)}><i class="fas fa-ellipsis-v"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
+{#if initializing}<div class="empty"><i class="fas fa-circle-notch fa-spin" aria-hidden="true"></i><strong>Loading library</strong><span>Reading saved games and achievement sources…</span></div>{:else if startupError}<div class="empty error" role="alert"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><strong>Could not load the library</strong><span>{startupError}</span><div class="empty-actions"><button onclick={initializeApp}>Retry</button><button onclick={() => invoke('open_data_location', { location: 'data' }).catch((error) => status = String(error))}>Open data folder</button></div></div>{:else if games.length === 0}<div class="empty"><i class="fas fa-gamepad" aria-hidden="true"></i><strong>No games found</strong><span>Achievement folders are detected automatically. Check Settings if a folder is missing.</span><button onclick={openSettings}>Open settings</button></div>{:else if visibleGames().length === 0}<div class="empty"><i class="fas fa-search" aria-hidden="true"></i><strong>No matching games</strong><span>Your library is intact. Clear the search or filter to see it.</span><button onclick={clearLibraryFilters}>Clear filters</button></div>{:else}<ul>{#each visibleGames() as game}<li><div class="game-box" role="button" tabindex="0" onclick={() => openGame(game)} onkeydown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void openGame(game); } }} oncontextmenu={(event) => showGameMenu(event, game)} title={`${game.name} — ${game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)}`}><div class="game-header"><span>{game.name.slice(0, 1).toUpperCase()}</span>{#if gameArtwork(game)}<img src={gameArtwork(game)} alt="" onerror={(event) => gameArtworkFailed(event, game)} />{/if}<button class="game-menu-button" title={`More actions for ${game.name}`} aria-label={`More actions for ${game.name}`} onclick={(event) => showGameMenu(event, game)}><i class="fas fa-ellipsis-v"></i></button></div><div class="game-info"><div><strong>{game.name}</strong><SourceBadge source={game.sourceKind} description={game.sourceId === 'merged' ? 'Merged from every enabled source' : sourceDescription(game.sourceKind)} /></div><div class="game-progress" data-percent={Math.round(completionPercent(game))}><i style={`width:${completionPercent(game)}%`}></i></div></div></div></li>{/each}</ul>{/if}
       </div>
     </section>
   {/if}
@@ -805,6 +829,7 @@
         {/each}
       </nav>
       <div class="settings-content">
+      {#if settingsError}<div class="settings-error" role="alert"><i class="fas fa-exclamation-triangle" aria-hidden="true"></i><span>{settingsError}</span></div>{/if}
       {#if settingsTab === 'general'}
       <div class="settings-group">
         <h3>Interface and library</h3>
@@ -943,8 +968,8 @@
       <div class="settings-group">
         <h3>Diagnostics</h3>
         <div class="field"><span>Achievement notification</span><button onclick={testNotification}>Run test</button></div>
-        <div class="field"><span>Progress notification</span><button onclick={() => invoke('test_progress_notification').then(() => status = 'Progress notification test sent').catch((error) => status = `Progress test failed: ${String(error)}`)}>Run test</button></div>
-        <div class="field"><span>Playtime notification</span><button onclick={() => invoke('test_playtime_notification').then(() => status = 'Playtime notification test sent').catch((error) => status = `Playtime test failed: ${String(error)}`)}>Run test</button></div>
+        <div class="field"><span>Progress notification</span><button onclick={() => testNotificationKind('test_progress_notification', 'Progress')}>Run test</button></div>
+        <div class="field"><span>Playtime notification</span><button onclick={() => testNotificationKind('test_playtime_notification', 'Playtime')}>Run test</button></div>
         <div class="field"><span>Windows notification controls</span><button onclick={() => invoke('open_windows_settings', { page: 'focus_assist' }).catch((error) => status = String(error))}>Focus Assist</button><button onclick={() => invoke('open_windows_settings', { page: 'notifications' }).catch((error) => status = String(error))}>Notifications &amp; actions</button></div>
         <p class="settings-help">Fullscreen Focus Assist rules can suppress native Windows notifications. Custom desktop popups and the optional Game Bar companion use separate delivery paths.</p>
         <div class="field"><span>Scan all sources</span><button onclick={() => scan(false)} disabled={scanning}>Run scan</button></div>
