@@ -939,12 +939,51 @@ fn save_settings_sync(
 }
 
 fn validate_settings(settings: &AppSettings) -> CommandResult<()> {
+    if settings.notification_max_age_seconds > 3_600 {
+        return Err("Maximum notification event age must be between 0 and 3600 seconds".into());
+    }
+    if !(10..=500).contains(&settings.notification_duration_percent) {
+        return Err("Notification animation duration must be between 10% and 500%".into());
+    }
+    if !(50..=150).contains(&settings.notification_scale_percent) {
+        return Err("Notification popup scale must be between 50% and 150%".into());
+    }
+    if settings.rumble_enabled && !(1..=100).contains(&settings.rumble_strength_percent) {
+        return Err("Controller rumble strength must be between 1% and 100%".into());
+    }
+    if settings.obs_replay_enabled && settings.obs_host.trim().is_empty() {
+        return Err("OBS host cannot be empty while replay capture is enabled".into());
+    }
+    if settings.obs_replay_enabled && settings.obs_port == 0 {
+        return Err("OBS port must be between 1 and 65535".into());
+    }
+    if settings.custom_action_enabled && settings.custom_action_executable.as_os_str().is_empty() {
+        return Err("Choose a program before enabling the unlock action".into());
+    }
+    if settings.game_bar_enabled && settings.game_bar_token.trim().is_empty() {
+        return Err("Xbox Game Bar pairing token cannot be empty".into());
+    }
     if settings.achievement_overlay_enabled && settings.achievement_overlay_hotkey.trim().is_empty()
     {
         return Err("The achievement overlay shortcut cannot be empty".into());
     }
+    if !(50..=200).contains(&settings.achievement_overlay_scale_percent) {
+        return Err("Achievement overlay scale must be between 50% and 200%".into());
+    }
     if settings.websocket_enabled {
         websocket::validate_address(&settings.websocket_host, settings.websocket_port)?;
+    }
+    if settings.gntp_enabled && settings.gntp_host.trim().is_empty() {
+        return Err("Growl host cannot be empty while forwarding is enabled".into());
+    }
+    if settings.gntp_enabled && settings.gntp_port == 0 {
+        return Err("Growl port must be between 1 and 65535".into());
+    }
+    if !matches!(
+        settings.steam_library_mode.as_str(),
+        "played" | "installed" | "owned"
+    ) {
+        return Err("Steam game selection must be played, installed, or owned".into());
     }
     Ok(())
 }
@@ -4729,5 +4768,25 @@ mod tests {
         assert!(deduplicate_source_locations(&mut settings));
         assert_eq!(settings.source_locations.len(), 1);
         assert_eq!(settings.source_locations[0].id, "first");
+    }
+
+    #[test]
+    fn settings_validation_explains_invalid_optional_integrations() {
+        let mut settings = AppSettings {
+            obs_replay_enabled: true,
+            obs_host: String::new(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            super::validate_settings(&settings),
+            Err("OBS host cannot be empty while replay capture is enabled".into())
+        );
+
+        settings.obs_replay_enabled = false;
+        settings.custom_action_enabled = true;
+        assert_eq!(
+            super::validate_settings(&settings),
+            Err("Choose a program before enabling the unlock action".into())
+        );
     }
 }
