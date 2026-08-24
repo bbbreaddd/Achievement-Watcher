@@ -397,7 +397,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn older_settings_gain_a_secure_disabled_game_bar_configuration() {
+    fn older_settings_gain_a_secure_game_bar_configuration() {
         let settings: AppSettings = serde_json::from_str(
             r#"{"notificationMode":"native_only","screenshotEnabled":false,"notificationDurationMs":4000,"sourceLocations":[]}"#,
         )
