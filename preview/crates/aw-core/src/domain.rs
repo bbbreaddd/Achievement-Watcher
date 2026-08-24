@@ -195,6 +195,7 @@ pub struct AppSettings {
     pub skipped_update_version: Option<String>,
     pub blacklisted_game_ids: Vec<String>,
     pub game_launch_configs: BTreeMap<String, GameLaunchConfig>,
+    pub show_play_button: bool,
     pub notification_mode: NotificationMode,
     pub notification_enabled: bool,
     pub notify_on_progress: bool,
@@ -220,7 +221,6 @@ pub struct AppSettings {
     pub custom_action_arguments: String,
     pub custom_action_working_directory: Option<PathBuf>,
     pub custom_action_hide_window: bool,
-    pub notification_duration_ms: u64,
     pub notification_duration_percent: u16,
     pub notification_scale_percent: u16,
     pub game_bar_enabled: bool,
@@ -275,6 +275,7 @@ impl Default for AppSettings {
             skipped_update_version: None,
             blacklisted_game_ids: Vec::new(),
             game_launch_configs: BTreeMap::new(),
+            show_play_button: false,
             notification_mode: NotificationMode::OverlayWithNativeFallback,
             notification_enabled: true,
             notify_on_progress: true,
@@ -288,7 +289,7 @@ impl Default for AppSettings {
             rumble_enabled: false,
             rumble_strength_percent: 65,
             rumble_duration_ms: 450,
-            screenshot_enabled: true,
+            screenshot_enabled: false,
             screenshot_overwrite: false,
             obs_replay_enabled: false,
             obs_host: "127.0.0.1".into(),
@@ -300,13 +301,12 @@ impl Default for AppSettings {
             custom_action_arguments: String::new(),
             custom_action_working_directory: None,
             custom_action_hide_window: true,
-            notification_duration_ms: 4_000,
             notification_duration_percent: 100,
             notification_scale_percent: 100,
             game_bar_enabled: false,
             game_bar_fullscreen_only: true,
             game_bar_token: random_token(),
-            achievement_overlay_enabled: true,
+            achievement_overlay_enabled: false,
             achievement_overlay_hotkey: "Ctrl+Shift+O".into(),
             achievement_overlay_scale_percent: 100,
             websocket_enabled: false,
@@ -388,6 +388,20 @@ mod tests {
                 .chars()
                 .all(|character| character.is_ascii_hexdigit())
         );
+        assert!(!settings.show_play_button);
+        assert!(!settings.achievement_overlay_enabled);
+    }
+
+    #[test]
+    fn new_install_enables_only_the_core_background_features() {
+        let settings = AppSettings::default();
+        assert!(settings.notification_enabled);
+        assert!(!settings.screenshot_enabled);
+        assert!(!settings.achievement_overlay_enabled);
+        assert!(!settings.obs_replay_enabled);
+        assert!(!settings.game_bar_enabled);
+        assert!(!settings.websocket_enabled);
+        assert!(!settings.gntp_enabled);
     }
 
     fn observation(source: &str, achieved: bool, unlock_time: i64) -> AchievementObservation {

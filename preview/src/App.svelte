@@ -52,9 +52,8 @@
   let confirmationBusy = false;
   let confirmation: { title: string; message: string; confirmLabel: string; action: () => void | Promise<void> } | null = null;
   const appWindow = getCurrentWindow();
-  const localeModules = import.meta.glob('../../app/locale/lang/*.json', { eager: true, import: 'default' }) as Record<string, Record<string, unknown>>;
+  const localeModules = import.meta.glob('../../app/locale/lang/english.json', { eager: true, import: 'default' }) as Record<string, Record<string, unknown>>;
   let locale: Record<string, unknown> = localeModules['../../app/locale/lang/english.json'] ?? {};
-  const languages = ['english', 'brazilian', 'czech', 'french', 'german', 'hungarian', 'italian', 'japanese', 'latam', 'polish', 'portuguese', 'russian', 'schinese', 'slovak', 'spanish', 'thai', 'turkish', 'ukrainian'];
 
   function t(path: string, fallback: string) {
     let value: unknown = locale;
@@ -62,15 +61,9 @@
     return typeof value === 'string' ? value : fallback;
   }
 
-  function applyLanguage(language: string) {
-    locale = localeModules[`../../app/locale/lang/${language}.json`] ?? localeModules['../../app/locale/lang/english.json'] ?? {};
-    document.documentElement.lang = language === 'schinese' ? 'zh-CN' : language === 'brazilian' ? 'pt-BR' : language;
-  }
-
-  async function changeLanguage() {
-    if (!settings) return;
-    applyLanguage(settings.language);
-    await save();
+  function applyLanguage() {
+    locale = localeModules['../../app/locale/lang/english.json'] ?? {};
+    document.documentElement.lang = 'en';
   }
 
   function toggleMaximize() {
@@ -434,7 +427,7 @@
   async function cancelSettings() {
     if (settingsSnapshot) {
       settings = cloneSettings(settingsSnapshot);
-      applyLanguage(settings.language);
+      applyLanguage();
       await loadAvatar();
     }
     settingsSnapshot = null;
@@ -713,7 +706,7 @@
         status = `Legacy import skipped: ${String(error)}`;
       });
       settings = await invoke<AppSettings>('load_settings');
-      applyLanguage(settings.language);
+      applyLanguage();
       await Promise.all([loadDiagnostics(), loadAvatar()]);
       operation = await invoke<OperationSnapshot>('operation_status').catch(() => null);
       await refresh();
@@ -850,7 +843,6 @@
       {#if settingsTab === 'general'}
       <div class="settings-group">
         <h3>Interface and library</h3>
-        <label class="field"><span>{t('settings.general.language.name', 'Language')}</span><select bind:value={settings.language} onchange={changeLanguage}>{#each languages as language}<option value={language}>{language[0].toUpperCase() + language.slice(1)}</option>{/each}</select></label>
         <label class="field"><span>Username</span><input bind:value={settings.username} onchange={save} placeholder="Windows account name" /></label>
         <div class="field"><span>Profile avatar</span><button onclick={chooseAvatar}>{settings.profileAvatarPath ? 'Change' : 'Choose'}</button>{#if settings.profileAvatarPath}<button onclick={() => { if (settings) { settings.profileAvatarPath = undefined; avatarData = ''; void save(); } }}>Remove</button>{/if}</div>
         <label class="field"><span>Game thumbnails</span><select bind:value={settings.thumbnailPortrait} onchange={save}><option value={false}>Landscape</option><option value={true}>Portrait</option></select></label>
@@ -858,6 +850,7 @@
         <label class="check"><input type="checkbox" bind:checked={settings.hideZero} onchange={save} /> Hide games with no unlocked achievements</label>
         <label class="check"><input type="checkbox" bind:checked={settings.showHidden} onchange={save} /> Reveal hidden achievement names and descriptions</label>
         <label class="check"><input type="checkbox" bind:checked={settings.mergeDuplicate} onchange={save} /> Merge the same game when it is found in multiple sources</label>
+        <label class="check"><input type="checkbox" bind:checked={settings.showPlayButton} onchange={save} /> Show Play actions for configured games</label>
         {#if settings.mergeDuplicate}<label class="check nested"><input type="checkbox" bind:checked={settings.timeMergeRecentFirst} onchange={save} /> Keep the most recent unlock timestamp when sources disagree</label>{/if}
       </div>
       <div class="settings-group">
