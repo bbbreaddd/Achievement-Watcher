@@ -153,12 +153,21 @@
     libraryFilter = 'all';
   }
 
+  function fitMenuPosition(element: HTMLElement, x: number, y: number) {
+    const bounds = element.getBoundingClientRect();
+    return {
+      x: Math.max(8, Math.min(x, innerWidth - bounds.width - 8)),
+      y: Math.max(8, Math.min(y, innerHeight - bounds.height - 8)),
+    };
+  }
+
   async function showGameMenu(event: MouseEvent, game: GameSummary) {
     event.preventDefault();
     event.stopPropagation();
     menuReturnFocus = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     gameMenu = { game, x: event.clientX, y: event.clientY };
     await tick();
+    gameMenu = { ...gameMenu, ...fitMenuPosition(gameMenuElement, event.clientX, event.clientY) };
     gameMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
     try {
       const choices = await invoke<SourceChoice[]>('game_sources', { gameId: game.gameId });
@@ -216,6 +225,7 @@
     menuReturnFocus = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     avatarMenu = { x: event.clientX, y: event.clientY };
     await tick();
+    avatarMenu = fitMenuPosition(avatarMenuElement, event.clientX, event.clientY);
     avatarMenuElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }
 
@@ -1198,7 +1208,7 @@
   <aside class="update-banner" aria-live="polite"><i class="fas fa-download"></i><div><strong>Achievement Watcher {availableUpdate.version} is available</strong><span>{availableUpdate.installerName}</span></div><button onclick={() => invoke('open_release_page', { url: availableUpdate!.releaseUrl })}>Release notes</button><button onclick={skipUpdate}>Skip</button><button class="primary" disabled={installingUpdate} onclick={installAvailableUpdate}>{installingUpdate ? 'Downloading…' : 'Install update'}</button></aside>
 {/if}
 {#if avatarMenu && settings}
-  <div bind:this={avatarMenuElement} class="context-menu" style={`left:${Math.min(avatarMenu.x, innerWidth - 240)}px;top:${Math.min(avatarMenu.y, innerHeight - 240)}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, avatarMenuElement, () => closeAvatarMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
+  <div bind:this={avatarMenuElement} class="context-menu" style={`left:${avatarMenu.x}px;top:${avatarMenu.y}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, avatarMenuElement, () => closeAvatarMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
     <div class="context-title">Profile avatar</div>
     <button role="menuitemcheckbox" aria-checked={settings.profileAvatarSquared} onclick={() => { if (settings) { settings.profileAvatarSquared = !settings.profileAvatarSquared; avatarMenu = null; void save(); } }}><i class={settings.profileAvatarSquared ? 'fas fa-check-square' : 'far fa-square'}></i> Squared</button>
     <button role="menuitem" onclick={() => { avatarMenu = null; void chooseAvatar(); }}><i class="fas fa-folder-open"></i> Browse…</button>
@@ -1207,7 +1217,7 @@
   </div>
 {/if}
 {#if gameMenu}
-  <div bind:this={gameMenuElement} class="context-menu" style={`left:${Math.max(8, Math.min(gameMenu.x, innerWidth - 218))}px;top:${Math.max(8, Math.min(gameMenu.y, innerHeight - 450))}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, gameMenuElement, () => closeGameMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
+  <div bind:this={gameMenuElement} class="context-menu" style={`left:${gameMenu.x}px;top:${gameMenu.y}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, gameMenuElement, () => closeGameMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
     <div class="context-title">{gameMenu.game.name}</div>
     {#if settings?.showPlayButton}<button role="menuitem" onclick={() => launchGame(gameMenu!.game)}>Play</button>{/if}
     {#if settings?.showPlayButton}<button role="menuitem" onclick={() => configureGame(gameMenu!.game)}>Configure executable</button>{/if}
