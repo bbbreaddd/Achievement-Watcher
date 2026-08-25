@@ -6,11 +6,12 @@
     message: string;
     confirmLabel: string;
     busy?: boolean;
+    danger?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
   }
 
-  let { title, message, confirmLabel, busy = false, onConfirm, onCancel }: Props = $props();
+  let { title, message, confirmLabel, busy = false, danger = true, onConfirm, onCancel }: Props = $props();
   let dialog: HTMLElement;
   let cancelButton: HTMLButtonElement;
 
@@ -43,7 +44,7 @@
     <p id="confirm-message">{message}</p>
     <div class="dialog-actions">
       <button bind:this={cancelButton} disabled={busy} onclick={onCancel}>Cancel</button>
-      <button class="danger-action" disabled={busy} onclick={onConfirm}>{busy ? 'Working…' : confirmLabel}</button>
+      <button class:danger-action={danger} class:primary={!danger} disabled={busy} onclick={onConfirm}>{busy ? 'Working…' : confirmLabel}</button>
     </div>
   </div>
 </div>

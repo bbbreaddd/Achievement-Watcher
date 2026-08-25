@@ -108,6 +108,15 @@ export interface SettingsApplyResult {
   scanRequired: boolean;
 }
 
+export interface DeckyCompanionStatus {
+  deckyInstalled: boolean;
+  companionInstalled: boolean;
+  installedVersion?: string;
+  availableVersion: string;
+  authenticationRequired: boolean;
+  polkitAvailable: boolean;
+}
+
 export interface OperationSnapshot {
   kind?: 'scan' | 'metadata';
   message: string;

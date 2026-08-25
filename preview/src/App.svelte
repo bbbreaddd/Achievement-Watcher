@@ -15,7 +15,7 @@
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
-  import type { AchievementObservation, AppSettings, GameSummary, NotificationEvent, NotificationRenderRequest, OperationSnapshot, PlatformCapabilities, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
+  import type { AchievementObservation, AppSettings, DeckyCompanionStatus, GameSummary, NotificationEvent, NotificationRenderRequest, OperationSnapshot, PlatformCapabilities, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
   let settings: AppSettings | null = null;
@@ -54,6 +54,8 @@
   let diagnosticData: { appVersion: string; observationCount: number; gameCount: number; enabledSourceCount: number; missingSourceCount: number; pendingNotifications: number; failedNotifications: number; recentErrors: string[]; notificationLog: string; watchers: Array<{ name: string; enabled: boolean; lastHeartbeatAt: number; lastWorkAt?: number; lastSuccessAt?: number; lastError?: string }> } | null = null;
   let availableUpdate: UpdateInfo | null = null;
   let installingUpdate = false;
+  let deckyStatus: DeckyCompanionStatus | null = null;
+  let installingDecky = false;
   let blacklistedGames: Array<{ gameId: string; name: string }> = [];
   let defaultScreenshotDirectory = '';
   let defaultClipDirectory = '';
@@ -68,7 +70,7 @@
   let gameConfigReturnFocus: HTMLElement | null = null;
   let confirmationReturnFocus: HTMLElement | null = null;
   let confirmationBusy = false;
-  let confirmation: { title: string; message: string; confirmLabel: string; action: () => void | Promise<void> } | null = null;
+  let confirmation: { title: string; message: string; confirmLabel: string; danger: boolean; action: () => void | Promise<void> } | null = null;
   const appWindow = getCurrentWindow();
   const localeModules = import.meta.glob('../../app/locale/lang/english.json', { eager: true, import: 'default' }) as Record<string, Record<string, unknown>>;
   let locale: Record<string, unknown> = localeModules['../../app/locale/lang/english.json'] ?? {};
@@ -247,9 +249,9 @@
     }
   }
 
-  function requestConfirmation(title: string, message: string, confirmLabel: string, action: () => void | Promise<void>) {
+  function requestConfirmation(title: string, message: string, confirmLabel: string, action: () => void | Promise<void>, danger = true) {
     confirmationReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    confirmation = { title, message, confirmLabel, action };
+    confirmation = { title, message, confirmLabel, danger, action };
   }
 
   function cancelConfirmation() {
@@ -903,6 +905,45 @@
     catch (error) { installingUpdate = false; status = `Update installation failed: ${String(error)}`; }
   }
 
+  async function installDeckyCompanion() {
+    installingDecky = true;
+    status = deckyStatus?.authenticationRequired
+      ? 'Waiting for administrator authentication…'
+      : 'Installing the Decky companion…';
+    try {
+      await invoke('install_decky_companion');
+      deckyStatus = await invoke<DeckyCompanionStatus>('decky_companion_status');
+      if (settings) {
+        settings.websocketEnabled = true;
+        settings.websocketHost = '127.0.0.1';
+        settings.websocketPort = 8082;
+      }
+      status = 'Decky companion installed';
+    } catch (error) {
+      status = `Decky companion installation failed: ${String(error)}`;
+    } finally {
+      installingDecky = false;
+    }
+  }
+
+  async function loadDeckyCompanion(prompt = false) {
+    deckyStatus = await invoke<DeckyCompanionStatus>('decky_companion_status').catch(() => null);
+    if (!prompt || !deckyStatus?.deckyInstalled || deckyStatus.companionInstalled) return;
+    const promptKey = `decky-companion-prompt-${deckyStatus.availableVersion}`;
+    if (localStorage.getItem(promptKey)) return;
+    localStorage.setItem(promptKey, 'shown');
+    const authentication = deckyStatus.authenticationRequired
+      ? ' Linux will ask for administrator authentication before any files are changed.'
+      : '';
+    requestConfirmation(
+      'Install the Game Mode companion?',
+      `Decky Loader was detected. The optional companion shows Achievement Watcher events inside Steam Game Mode.${authentication}`,
+      'Install companion',
+      installDeckyCompanion,
+      false,
+    );
+  }
+
   async function saveGameConfig() {
     if (!settings || !gameConfig || !gameConfig.executable) return;
     const previousConfig = settings.gameLaunchConfigs[gameConfig.game.gameId];
@@ -970,6 +1011,7 @@
         invoke<string>('default_screenshot_directory'),
         invoke<string>('default_clip_directory'),
       ]);
+      void loadDeckyCompanion(true);
       await refreshNotificationPreview();
       applyLanguage();
       await Promise.all([loadDiagnostics(), loadAvatar()]);
@@ -1275,6 +1317,24 @@
         <label class="check"><input type="checkbox" bind:checked={settings.watchdogCacheEnabled} onchange={save} /> Original Achievement Watcher cache</label>
       </div>
       {:else if settingsTab === 'advanced'}
+      {#if deckyStatus?.deckyInstalled}
+      <div class="settings-group">
+        <h3>Steam Game Mode</h3>
+        <div class="field">
+          <span>Decky companion</span>
+          <strong>{deckyStatus.companionInstalled ? `Installed${deckyStatus.installedVersion ? ` · ${deckyStatus.installedVersion}` : ''}` : 'Not installed'}</strong>
+          <button class="primary" disabled={installingDecky || (deckyStatus.authenticationRequired && !deckyStatus.polkitAvailable)} onclick={() => requestConfirmation(
+            deckyStatus!.companionInstalled ? 'Update the Game Mode companion?' : 'Install the Game Mode companion?',
+            `${deckyStatus!.companionInstalled ? 'Achievement Watcher will replace its existing companion files.' : 'The companion will be added to Decky Loader.'}${deckyStatus!.authenticationRequired ? ' Linux will ask for administrator authentication.' : ''}`,
+            deckyStatus!.companionInstalled ? 'Update companion' : 'Install companion',
+            installDeckyCompanion,
+            false,
+          )}>{installingDecky ? 'Installing…' : deckyStatus.companionInstalled ? 'Update' : 'Install'}</button>
+        </div>
+        <p class="settings-help">Displays Achievement Watcher events in Decky's quick-access menu. Decky may need a moment to reload after installation.</p>
+        {#if deckyStatus.authenticationRequired && !deckyStatus.polkitAvailable}<p class="settings-help warning">This Decky installation requires administrator access, but a graphical authentication service was not found.</p>{/if}
+      </div>
+      {/if}
       <div class="settings-group">
         <h3>Unlock action</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.customActionEnabled} onchange={save} /> Run a program after an achievement unlocks</label>
@@ -1343,7 +1403,7 @@
   </div>
 {/if}
 {#if confirmation}
-  <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} busy={confirmationBusy} onConfirm={runConfirmedAction} onCancel={cancelConfirmation} />
+  <ConfirmDialog title={confirmation.title} message={confirmation.message} confirmLabel={confirmation.confirmLabel} danger={confirmation.danger} busy={confirmationBusy} onConfirm={runConfirmedAction} onCancel={cancelConfirmation} />
 {/if}
 {#if gameConfig}
   <GameConfigDialog gameName={gameConfig.game.name} bind:executable={gameConfig.executable} bind:launchArguments={gameConfig.arguments} onBrowse={chooseGameExecutable} onSave={saveGameConfig} onCancel={closeGameConfig} />
