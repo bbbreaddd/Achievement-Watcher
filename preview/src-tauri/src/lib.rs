@@ -43,6 +43,7 @@ struct AppState {
     current_overlay: Mutex<Option<NotificationEvent>>,
     current_overlay_presentation: Mutex<Option<NotificationPresentationSettings>>,
     notification_dispatch: Mutex<()>,
+    clip_capture: tokio::sync::Mutex<()>,
     pending_open_game: Mutex<Option<OpenGameRequest>>,
     launched_games: Mutex<HashSet<String>>,
     steam_fallback_blocked_until: Mutex<Option<Instant>>,
@@ -51,6 +52,7 @@ struct AppState {
     jobs: jobs::JobCoordinator,
     data_dir: PathBuf,
     screenshot_dir: PathBuf,
+    clip_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -610,19 +612,17 @@ fn export_goldberg_achievements_sync(
 }
 
 #[tauri::command]
-fn open_data_location(state: State<'_, AppState>, location: String) -> CommandResult<()> {
+fn open_data_location(
+    state: State<'_, AppState>,
+    location: String,
+    path: Option<PathBuf>,
+) -> CommandResult<()> {
     let select_file = location == "notification_log";
     let target = match location.as_str() {
         "data" => state.data_dir.clone(),
         "notification_log" => state.data_dir.join("notification.log"),
-        "screenshots" => state
-            .store
-            .lock()
-            .map_err(lock_error)?
-            .load_settings()
-            .map_err(error)?
-            .screenshot_directory
-            .unwrap_or_else(|| state.screenshot_dir.clone()),
+        "screenshots" => path.unwrap_or_else(|| state.screenshot_dir.clone()),
+        "clips" => path.unwrap_or_else(|| state.clip_dir.clone()),
         _ => return Err("Unsupported application data location".into()),
     };
     #[cfg(windows)]
@@ -656,6 +656,11 @@ fn open_data_location(state: State<'_, AppState>, location: String) -> CommandRe
 #[tauri::command]
 fn default_screenshot_directory(state: State<'_, AppState>) -> PathBuf {
     state.screenshot_dir.clone()
+}
+
+#[tauri::command]
+fn default_clip_directory(state: State<'_, AppState>) -> PathBuf {
+    state.clip_dir.clone()
 }
 
 #[tauri::command]
@@ -2207,10 +2212,47 @@ fn handle_created_events(
             if settings.obs_replay_enabled {
                 let obs_settings = settings.clone();
                 let handle = app.clone();
+                let game_id = event.observation.game_id.clone();
+                let achievement = event
+                    .observation
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| event.observation.achievement_id.clone());
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<AppState>();
+                    let _capture = state.clip_capture.lock().await;
                     match obs::save_replay(&obs_settings).await {
-                        Ok(()) => notification_log(&state, "OBS replay buffer saved"),
+                        Ok(source) => {
+                            let game = state
+                                .store
+                                .lock()
+                                .ok()
+                                .and_then(|store| store.game_metadata(&game_id).ok().flatten())
+                                .map(|(name, _)| name)
+                                .unwrap_or(game_id);
+                            let root = obs_settings
+                                .clip_directory
+                                .clone()
+                                .unwrap_or_else(|| state.clip_dir.clone());
+                            match tauri::async_runtime::spawn_blocking(move || {
+                                archive_clip(&source, &root, &game, &achievement)
+                            })
+                            .await
+                            {
+                                Ok(Ok(path)) => notification_log(
+                                    &state,
+                                    &format!("Achievement clip saved to {}", path.display()),
+                                ),
+                                Ok(Err(message)) => notification_log(
+                                    &state,
+                                    &format!("Achievement clip could not be copied: {message}"),
+                                ),
+                                Err(message) => notification_log(
+                                    &state,
+                                    &format!("Achievement clip copy task failed: {message}"),
+                                ),
+                            }
+                        }
                         Err(message) => {
                             notification_log(&state, &format!("OBS replay skipped: {message}"))
                         }
@@ -3117,7 +3159,19 @@ async fn test_obs(state: State<'_, AppState>, settings: Option<AppSettings>) -> 
             .map_err(error)?,
     };
     validate_settings(&settings)?;
-    obs::save_replay(&settings).await
+    let _capture = state.clip_capture.lock().await;
+    let source = obs::save_replay(&settings).await?;
+    let root = settings
+        .clip_directory
+        .as_deref()
+        .unwrap_or(&state.clip_dir);
+    let source = source.clone();
+    let root = root.to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || {
+        archive_clip(&source, &root, "Achievement Watcher", "Test clip").map(|_| ())
+    })
+    .await
+    .map_err(error)?
 }
 
 fn sample_notification() -> NotificationEvent {
@@ -4498,6 +4552,55 @@ fn notification_log(state: &AppState, message: &str) {
     let _ = writeln!(file, "{} {message}", Utc::now().to_rfc3339());
 }
 
+fn archive_clip(
+    source: &Path,
+    root: &Path,
+    game: &str,
+    achievement: &str,
+) -> CommandResult<PathBuf> {
+    if !source.is_file() {
+        return Err("The replay reported by OBS no longer exists".into());
+    }
+    let directory = root.join(sanitize(game));
+    std::fs::create_dir_all(&directory).map_err(error)?;
+    let extension = source
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mkv");
+    let base = sanitize(achievement);
+    let path = unique_media_path(&directory, &base, extension);
+    let temporary = path.with_extension(format!("{extension}.tmp"));
+    if let Err(copy_error) = std::fs::copy(source, &temporary) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error(copy_error));
+    }
+    if let Err(rename_error) = std::fs::rename(&temporary, &path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error(rename_error));
+    }
+    Ok(path)
+}
+
+fn unique_media_path(directory: &Path, base: &str, extension: &str) -> PathBuf {
+    let original = directory.join(format!("{base}.{extension}"));
+    if !original.exists() {
+        return original;
+    }
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
+    let timestamped = directory.join(format!("{base}-{timestamp}.{extension}"));
+    if !timestamped.exists() {
+        return timestamped;
+    }
+    for copy in 2.. {
+        let candidate = directory.join(format!("{base}-{timestamp}-{copy}.{extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
 #[cfg(windows)]
 fn capture_primary_display(
     data_dir: &Path,
@@ -4513,18 +4616,7 @@ fn capture_primary_display(
     let directory = data_dir.join(sanitize(game));
     std::fs::create_dir_all(&directory).map_err(error)?;
     let base = sanitize(achievement);
-    let mut path = directory.join(format!("{base}.png"));
-    if path.exists() {
-        path = directory.join(format!("{base}-{}.png", Utc::now().format("%Y%m%d-%H%M%S")));
-        let mut copy = 2;
-        while path.exists() {
-            path = directory.join(format!(
-                "{base}-{}-{copy}.png",
-                Utc::now().format("%Y%m%d-%H%M%S")
-            ));
-            copy += 1;
-        }
-    }
+    let path = unique_media_path(&directory, &base, "png");
     let temporary = path.with_extension("png.tmp");
     image.save(&temporary).map_err(error)?;
     std::fs::rename(&temporary, &path).map_err(error)?;
@@ -4603,6 +4695,7 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let screenshot_dir = app.path().picture_dir()?.join("Achievements");
+            let clip_dir = app.path().video_dir()?.join("Achievements");
             let store = Store::open(data_dir.join("achievement-watcher.sqlite3"))?;
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -4611,6 +4704,7 @@ pub fn run() {
                 current_overlay: Mutex::new(None),
                 current_overlay_presentation: Mutex::new(None),
                 notification_dispatch: Mutex::new(()),
+                clip_capture: tokio::sync::Mutex::new(()),
                 pending_open_game: Mutex::new(None),
                 launched_games: Mutex::new(HashSet::new()),
                 steam_fallback_blocked_until: Mutex::new(None),
@@ -4619,6 +4713,7 @@ pub fn run() {
                 jobs: jobs::JobCoordinator::default(),
                 data_dir,
                 screenshot_dir,
+                clip_dir,
             });
             let mut startup_settings = app
                 .state::<AppState>()
@@ -4716,6 +4811,7 @@ pub fn run() {
             export_goldberg_achievements,
             open_data_location,
             default_screenshot_directory,
+            default_clip_directory,
             open_achievement_source,
             openable_game_sources,
             diagnostics,

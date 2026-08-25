@@ -13,7 +13,7 @@ pub fn import_legacy(store: &mut Store, legacy_root: &Path) -> Result<MigrationR
     // Keep the import idempotent while allowing newer builds to replay expanded
     // migrations against databases that recorded an older, less complete pass.
     // Bump this suffix whenever the set or meaning of imported legacy data changes.
-    let key = format!("{}#parity-v2", legacy_root.to_string_lossy());
+    let key = format!("{}#parity-v3", legacy_root.to_string_lossy());
     if let Some(report) = store.migration_report(&key)? {
         import_game_metadata_if_changed(store, legacy_root)?;
         return Ok(report);
@@ -392,6 +392,9 @@ fn apply_legacy_settings(content: &str, settings: &mut AppSettings) {
             ("souvenir_video", "video") => {
                 settings.obs_replay_enabled = value.trim_matches('"') != "0"
             }
+            ("souvenir_video", "custom_dir") if !value.trim_matches('"').is_empty() => {
+                settings.clip_directory = Some(value.trim_matches('"').into())
+            }
             ("action", "target") if !value.trim_matches('"').is_empty() => {
                 settings.custom_action_enabled = true;
                 settings.custom_action_executable = value.trim_matches('"').into();
@@ -525,7 +528,7 @@ mod tests {
         let legacy = tempdir().unwrap();
         fs::create_dir_all(legacy.path().join("cfg")).unwrap();
         let options = legacy.path().join("cfg/options.ini");
-        fs::write(&options, "[general]\nusername=Green\n[achievement]\nmergeDuplicate=false\nhideZero=true\n[achievement_source]\nlegitSteam=2\n[steam]\napiKey=00000000000000000000000000000000:add81aa524cfee4110219e204dac6093fb361576ded039032d5c51c5004dd7305b1e4d009d02e2a71593aee1e439a261\n[notification]\nrumble=false\n[notification_toast]\ncustomToastAudio=0\n[notification_transport]\nchromium=false\ntoast=true\nwebsocket=true\ngntp=false\n[overlay]\nposition=center-bot\npreset=PS5enhanced\n[souvenir_screenshot]\nscreenshot=false\n[action]\ntarget=C:\\\\Tools\\\\unlock.exe\ncwd=C:\\\\Tools\nhide=false").unwrap();
+        fs::write(&options, "[general]\nusername=Green\n[achievement]\nmergeDuplicate=false\nhideZero=true\n[achievement_source]\nlegitSteam=2\n[steam]\napiKey=00000000000000000000000000000000:add81aa524cfee4110219e204dac6093fb361576ded039032d5c51c5004dd7305b1e4d009d02e2a71593aee1e439a261\n[notification]\nrumble=false\n[notification_toast]\ncustomToastAudio=0\n[notification_transport]\nchromium=false\ntoast=true\nwebsocket=true\ngntp=false\n[overlay]\nposition=center-bot\npreset=PS5enhanced\n[souvenir_screenshot]\nscreenshot=false\n[souvenir_video]\nvideo=1\ncustom_dir=C:\\\\Videos\\\\Achievements\n[action]\ntarget=C:\\\\Tools\\\\unlock.exe\ncwd=C:\\\\Tools\nhide=false").unwrap();
         fs::write(legacy.path().join("cfg/exclusion.db"), "[480,\"1234\"]").unwrap();
         let before = fs::read(&options).unwrap();
         let mut store = Store::open_memory().unwrap();
@@ -551,6 +554,11 @@ mod tests {
         assert_eq!(settings.notification_sound, "none");
         assert!(settings.websocket_enabled);
         assert!(!settings.gntp_enabled);
+        assert!(settings.obs_replay_enabled);
+        assert_eq!(
+            settings.clip_directory,
+            Some(PathBuf::from(r"C:\\Videos\\Achievements"))
+        );
         assert_eq!(settings.steam_api_key, "0123456789abcdef0123456789abcdef");
         assert!(settings.custom_action_enabled);
         assert_eq!(
@@ -628,7 +636,7 @@ mod tests {
         let mut store = Store::open_memory().unwrap();
         store
             .save_migration_report(
-                &legacy.path().to_string_lossy(),
+                &format!("{}#parity-v2", legacy.path().to_string_lossy()),
                 &MigrationReport::default(),
             )
             .unwrap();
