@@ -2035,14 +2035,17 @@ fn scan_sources_sync(
                 && steam_account_matches(settings.steam_account_id.as_deref(), &account_id)
             {
                 scanned_games.insert(game_id.clone());
-                if let Err(message) = sync_steam_game(
-                    &app,
-                    &state,
-                    location,
-                    &account_id,
-                    &game_id,
-                    establish_baseline.unwrap_or(false),
-                ) {
+                if !steam_fallback_paused(&state)
+                    && (settings.steam_public_fallback || !settings.steam_api_key.trim().is_empty())
+                    && let Err(message) = sync_steam_game(
+                        &app,
+                        &state,
+                        location,
+                        &account_id,
+                        &game_id,
+                        establish_baseline.unwrap_or(false),
+                    )
+                {
                     notification_log(
                         &state,
                         &format!("Steam scan skipped app {game_id}: {message}"),
@@ -2605,8 +2608,12 @@ fn refresh_metadata_sync(
         }
         let (needs_game, needs_achievements, needs_global_percentages) = {
             let store = state.store.lock().map_err(lock_error)?;
+            let game_metadata = store.game_metadata(&game_id).map_err(error)?;
             (
-                force_refresh || store.game_metadata(&game_id).map_err(error)?.is_none(),
+                force_refresh
+                    || game_metadata
+                        .as_ref()
+                        .is_none_or(|(_, icon)| icon.is_none()),
                 force_refresh || !store.has_achievement_metadata(&game_id).map_err(error)?,
                 force_refresh || !store.has_global_percentages(&game_id).map_err(error)?,
             )
@@ -2647,7 +2654,7 @@ fn refresh_metadata_sync(
                 updated += 1;
             }
         }
-        if needs_achievements {
+        if needs_achievements && !steam_fallback_paused(&state) {
             match import_community_schema(&agent, &state, &game_id) {
                 Ok(true) => updated += 1,
                 Ok(false) => {}
@@ -2928,6 +2935,9 @@ fn import_community_schema_as(
     steam_game_id: &str,
     metadata_game_id: &str,
 ) -> CommandResult<bool> {
+    if steam_fallback_paused(state) {
+        return Ok(false);
+    }
     // Public fallback profiles used by SteamAutoCrack's MIT-licensed community scraper.
     const PROFILES: [&str; 8] = [
         "76561198028121353",
@@ -2942,14 +2952,20 @@ fn import_community_schema_as(
     for profile in PROFILES {
         let url =
             format!("https://steamcommunity.com/profiles/{profile}/stats/{steam_game_id}/?xml=1");
-        let Ok(response) = agent.get(&url).call() else {
-            continue;
+        let response = match agent.get(&url).call() {
+            Ok(response) => response,
+            Err(message) if message.to_string().contains("429") => {
+                pause_steam_fallback(state)?;
+                return Ok(false);
+            }
+            Err(_) => continue,
         };
         let Ok(xml) = response.into_string() else {
             continue;
         };
         let Ok(xml) = steam_xml_section(&xml, "playerstats") else {
-            continue;
+            pause_steam_fallback(state)?;
+            return Ok(false);
         };
         let Ok(schema) = quick_xml::de::from_str::<CommunityStats>(&xml) else {
             continue;
@@ -3568,12 +3584,7 @@ fn sync_steam_game(
             "Steam profile access is disabled; local cache changes cannot be resolved".into(),
         );
     }
-    if state
-        .steam_fallback_blocked_until
-        .lock()
-        .map_err(lock_error)?
-        .is_some_and(|until| until > Instant::now())
-    {
+    if steam_fallback_paused(state) {
         return Err("Steam profile access is temporarily paused after rate limiting".into());
     }
     let mut observations = match read_steam_fallback(
@@ -3584,11 +3595,8 @@ fn sync_steam_game(
     ) {
         Ok(observations) => observations,
         Err(profile_error) => {
-            if profile_error.contains("429") {
-                *state
-                    .steam_fallback_blocked_until
-                    .lock()
-                    .map_err(lock_error)? = Some(Instant::now() + Duration::from_secs(300));
+            if profile_error.contains("429") || profile_error.contains("HTML page instead of XML") {
+                pause_steam_fallback(state)?;
             }
             return Err(format!("Steam profile: {profile_error}"));
         }
@@ -3603,6 +3611,22 @@ fn sync_steam_game(
             .map_err(error)?
     };
     handle_created_events(app, state, &settings, events, true)
+}
+
+fn steam_fallback_paused(state: &State<'_, AppState>) -> bool {
+    state
+        .steam_fallback_blocked_until
+        .lock()
+        .map(|blocked| blocked.is_some_and(|until| until > Instant::now()))
+        .unwrap_or(true)
+}
+
+fn pause_steam_fallback(state: &State<'_, AppState>) -> CommandResult<()> {
+    *state
+        .steam_fallback_blocked_until
+        .lock()
+        .map_err(lock_error)? = Some(Instant::now() + Duration::from_secs(300));
+    Ok(())
 }
 
 fn steam_account_matches(configured: Option<&str>, account_id: &str) -> bool {
