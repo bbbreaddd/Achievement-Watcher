@@ -2175,7 +2175,7 @@ fn scan_sources_sync(
     }
     for (game_id, name) in shortcut_games {
         if let Ok(store) = state.store.lock() {
-            let _ = store.save_game_metadata(&game_id, &name, None);
+            let _ = store.save_game_metadata_if_achievements(&game_id, &name, None);
         }
     }
     configure_watcher(&app, &state, &settings)?;
