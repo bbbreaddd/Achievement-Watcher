@@ -6,6 +6,7 @@ obs
 app/node_modules/
 watchdog/node_modules/
 preview/node_modules/
+preview/decky-companion/node_modules/
 
 # Logs
 logs/
@@ -24,6 +25,8 @@ Thumbs.db
 
 # Build output
 dist/
+!preview/decky-companion/dist/
+!preview/decky-companion/dist/index.js
 build/
 preview/target/
 preview/dist/

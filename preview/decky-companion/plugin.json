@@ -1,0 +1,10 @@
+{
+  "name": "Achievement Watcher",
+  "author": "Achievement Watcher contributors",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["achievements", "games", "notifications"],
+    "description": "Achievement Watcher integration for Steam Game Mode."
+  }
+}
