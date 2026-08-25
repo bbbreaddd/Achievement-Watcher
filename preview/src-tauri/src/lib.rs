@@ -4302,7 +4302,7 @@ fn show_overlay(
         .shadow(false)
         .always_on_top(true)
         .focused(false)
-        .visible(false)
+        .visible(cfg!(target_os = "linux"))
         .skip_taskbar(true)
         .resizable(false)
         .build()
