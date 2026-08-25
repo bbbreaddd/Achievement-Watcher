@@ -103,21 +103,8 @@ pub fn stats_files(location: &SourceLocation) -> Vec<PathBuf> {
 }
 
 pub fn installed_games(location: &SourceLocation) -> Vec<(String, String)> {
-    let Some(steam_root) = location.path.parent().and_then(Path::parent) else {
-        return Vec::new();
-    };
-    let mut steamapps = vec![steam_root.join("steamapps")];
-    if let Ok(content) = std::fs::read_to_string(steam_root.join("steamapps/libraryfolders.vdf")) {
-        for line in content.lines() {
-            let values = quoted_values(line);
-            if values.len() >= 2 && values[0].eq_ignore_ascii_case("path") {
-                let library = PathBuf::from(values[1].replace(r"\\", r"\"));
-                steamapps.push(library.join("steamapps"));
-            }
-        }
-    }
     let mut games = Vec::new();
-    for directory in steamapps {
+    for directory in steamapps_directories(location) {
         let Ok(entries) = std::fs::read_dir(directory) else {
             continue;
         };
@@ -151,6 +138,68 @@ pub fn installed_games(location: &SourceLocation) -> Vec<(String, String)> {
     games
 }
 
+pub fn steamapps_directories(location: &SourceLocation) -> Vec<PathBuf> {
+    let Some(steam_root) = location.path.parent().and_then(Path::parent) else {
+        return Vec::new();
+    };
+    let mut steamapps = vec![steam_root.join("steamapps")];
+    if let Ok(content) = std::fs::read_to_string(steam_root.join("steamapps/libraryfolders.vdf")) {
+        for line in content.lines() {
+            let values = quoted_values(line);
+            if values.len() >= 2 && values[0].eq_ignore_ascii_case("path") {
+                let library = PathBuf::from(values[1].replace(r"\\", r"\"));
+                steamapps.push(library.join("steamapps"));
+            }
+        }
+    }
+    steamapps.sort();
+    steamapps.dedup();
+    steamapps
+}
+
+#[cfg(target_os = "linux")]
+pub fn proton_source_roots(location: &SourceLocation) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for steamapps in steamapps_directories(location) {
+        let Ok(prefixes) = std::fs::read_dir(steamapps.join("compatdata")) else {
+            continue;
+        };
+        for prefix in prefixes.filter_map(Result::ok) {
+            let users = prefix.path().join("pfx/drive_c/users");
+            let Ok(user_directories) = std::fs::read_dir(users) else {
+                continue;
+            };
+            for user in user_directories
+                .filter_map(Result::ok)
+                .map(|entry| entry.path())
+            {
+                for relative in [
+                    "AppData/Roaming/Goldberg SteamEmu Saves",
+                    "AppData/Roaming/GSE Saves",
+                    "AppData/Roaming/EMPRESS",
+                    "AppData/Roaming/Steam/CODEX",
+                    "AppData/Roaming/SmartSteamEmu",
+                    "AppData/Roaming/CreamAPI",
+                    "AppData/Local/SKIDROW",
+                    "AppData/Local/anadius/LSX emu/achievement_watcher",
+                    "Documents/SKIDROW",
+                    "Documents/Steam/CODEX",
+                    "Documents/Steam/RUNE",
+                    "Documents/EMPRESS",
+                ] {
+                    let candidate = user.join(relative);
+                    if candidate.is_dir() {
+                        roots.push(candidate);
+                    }
+                }
+            }
+        }
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
 pub fn installed_app_ids(location: &SourceLocation) -> Vec<String> {
     installed_games(location)
         .into_iter()
@@ -179,7 +228,12 @@ pub fn running_app_id() -> Option<String> {
     (status == 0 && app_id > 0).then(|| app_id.to_string())
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn running_app_id() -> Option<String> {
+    crate::process::running_steam_app_id()
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn running_app_id() -> Option<String> {
     None
 }
@@ -232,6 +286,31 @@ mod tests {
             installed_games(&location),
             [("400".into(), "Portal".into())]
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn finds_known_emulator_saves_inside_proton_prefixes() {
+        let root = std::env::temp_dir().join(format!(
+            "achievement-watcher-proton-sources-{}",
+            std::process::id()
+        ));
+        let stats = root.join("appcache/stats");
+        let saves = root.join(
+            "steamapps/compatdata/504230/pfx/drive_c/users/steamuser/AppData/Roaming/Goldberg SteamEmu Saves",
+        );
+        std::fs::create_dir_all(&stats).unwrap();
+        std::fs::create_dir_all(&saves).unwrap();
+        let location = SourceLocation {
+            id: "steam".into(),
+            kind: aw_core::SourceKind::Steam,
+            path: stats,
+            enabled: true,
+            notify: true,
+        };
+
+        assert_eq!(proton_source_roots(&location), [saves]);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

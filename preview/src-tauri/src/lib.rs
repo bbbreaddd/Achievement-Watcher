@@ -1315,7 +1315,23 @@ fn detect_sources_sync(deep: bool) -> Vec<aw_core::SourceLocation> {
         ));
     }
     for root in registry::steam_install_paths() {
-        candidates.push((aw_core::SourceKind::Steam, root.join("appcache/stats")));
+        let stats = root.join("appcache/stats");
+        #[cfg(target_os = "linux")]
+        {
+            let location = aw_core::SourceLocation {
+                id: "linux-steam-discovery".into(),
+                kind: aw_core::SourceKind::Steam,
+                path: stats.clone(),
+                enabled: true,
+                notify: true,
+            };
+            candidates.extend(
+                steam::proton_source_roots(&location)
+                    .into_iter()
+                    .map(|path| (aw_core::SourceKind::SteamEmulator, path)),
+            );
+        }
+        candidates.push((aw_core::SourceKind::Steam, stats));
     }
     if deep {
         candidates.extend(smart_find_source_roots());
