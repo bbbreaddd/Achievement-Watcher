@@ -226,6 +226,20 @@ async fn install_decky_companion(app: AppHandle) -> CommandResult<()> {
     }
 }
 
+#[tauri::command]
+async fn remove_decky_companion() -> CommandResult<()> {
+    #[cfg(target_os = "linux")]
+    {
+        tauri::async_runtime::spawn_blocking(decky::remove)
+            .await
+            .map_err(error)?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("The Decky companion is available only on Linux".into())
+    }
+}
+
 fn emit_operation(app: &AppHandle, snapshot: jobs::OperationSnapshot) {
     let _ = app.emit("operation-status", snapshot);
 }
@@ -4875,6 +4889,7 @@ pub fn run() {
             platform_capabilities,
             decky_companion_status,
             install_decky_companion,
+            remove_decky_companion,
             load_settings,
             read_profile_avatar,
             read_notification_audio,

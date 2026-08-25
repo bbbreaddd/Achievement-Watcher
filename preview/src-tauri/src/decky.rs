@@ -81,6 +81,43 @@ pub fn install() -> Result<(), String> {
     result
 }
 
+pub fn remove() -> Result<(), String> {
+    let root = plugin_root().ok_or_else(|| "Decky Loader was not detected".to_string())?;
+    let destination = plugin_path(&root);
+    if !destination.exists() {
+        return Ok(());
+    }
+    if writable_by_current_user(&root) {
+        return std::fs::remove_dir_all(destination).map_err(|error| error.to_string());
+    }
+    if !Path::new("/usr/bin/pkexec").is_file() {
+        return Err(
+            "Decky's plugin folder requires administrator access, but pkexec is unavailable".into(),
+        );
+    }
+    let script = std::env::temp_dir().join(format!(
+        "achievement-watcher-decky-remove-{}-{}.sh",
+        std::process::id(),
+        chrono::Utc::now().timestamp_millis()
+    ));
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nset -eu\ntarget=$1\nrm -rf -- \"$target\"\nsystemctl restart plugin_loader.service\n",
+    )
+    .map_err(|error| error.to_string())?;
+    let status = Command::new("/usr/bin/pkexec")
+        .args(["/bin/sh"])
+        .arg(&script)
+        .arg(destination)
+        .status()
+        .map_err(|error| format!("could not start administrator authentication: {error}"));
+    let _ = std::fs::remove_file(script);
+    status?
+        .success()
+        .then_some(())
+        .ok_or_else(|| "Decky companion removal was cancelled or failed".into())
+}
+
 fn write_package(staging: &Path) -> Result<(), String> {
     std::fs::create_dir_all(staging.join("dist")).map_err(|error| error.to_string())?;
     for (path, content) in [

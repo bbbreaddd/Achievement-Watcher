@@ -944,6 +944,20 @@
     );
   }
 
+  async function removeDeckyCompanion() {
+    installingDecky = true;
+    status = 'Removing the Decky companion…';
+    try {
+      await invoke('remove_decky_companion');
+      deckyStatus = await invoke<DeckyCompanionStatus>('decky_companion_status');
+      status = 'Decky companion removed';
+    } catch (error) {
+      status = `Decky companion removal failed: ${String(error)}`;
+    } finally {
+      installingDecky = false;
+    }
+  }
+
   async function saveGameConfig() {
     if (!settings || !gameConfig || !gameConfig.executable) return;
     const previousConfig = settings.gameLaunchConfigs[gameConfig.game.gameId];
@@ -1330,6 +1344,12 @@
             installDeckyCompanion,
             false,
           )}>{installingDecky ? 'Installing…' : deckyStatus.companionInstalled ? 'Update' : 'Install'}</button>
+          {#if deckyStatus.companionInstalled}<button disabled={installingDecky} onclick={() => requestConfirmation(
+            'Remove the Game Mode companion?',
+            'Only the Achievement Watcher plugin will be removed. Decky Loader and your achievement data will remain unchanged.',
+            'Remove companion',
+            removeDeckyCompanion,
+          )}>Remove</button>{/if}
         </div>
         <p class="settings-help">Displays Achievement Watcher events in Decky's quick-access menu. Decky may need a moment to reload after installation.</p>
         {#if deckyStatus.authenticationRequired && !deckyStatus.polkitAvailable}<p class="settings-help warning">This Decky installation requires administrator access, but a graphical authentication service was not found.</p>{/if}
