@@ -2026,37 +2026,29 @@ fn scan_sources_sync(
         .map_err(error)?;
     let registry_count =
         sync_registry_sources(&app, &state, &settings, establish_baseline.unwrap_or(false))?;
+    let mut shortcut_games = Vec::new();
     for location in settings.source_locations.iter().filter(|location| {
         settings.steam_enabled && location.enabled && location.kind == aw_core::SourceKind::Steam
     }) {
-        let mut scanned_games = HashSet::new();
-        for (game_id, name) in steam::shortcut_games(location) {
-            if let Ok(store) = state.store.lock() {
-                let _ = store.save_game_metadata(&game_id, &name, None);
-            }
-            scanned_games.insert(game_id);
-        }
+        shortcut_games.extend(steam::shortcut_games(location));
         for path in steam::stats_files(location) {
             if let Some((account_id, game_id)) = steam::stats_file_identity(&path)
                 && steam_account_matches(settings.steam_account_id.as_deref(), &account_id)
+                && !steam_fallback_paused(&state)
+                && (settings.steam_public_fallback || !settings.steam_api_key.trim().is_empty())
+                && let Err(message) = sync_steam_game(
+                    &app,
+                    &state,
+                    location,
+                    &account_id,
+                    &game_id,
+                    establish_baseline.unwrap_or(false),
+                )
             {
-                scanned_games.insert(game_id.clone());
-                if !steam_fallback_paused(&state)
-                    && (settings.steam_public_fallback || !settings.steam_api_key.trim().is_empty())
-                    && let Err(message) = sync_steam_game(
-                        &app,
-                        &state,
-                        location,
-                        &account_id,
-                        &game_id,
-                        establish_baseline.unwrap_or(false),
-                    )
-                {
-                    notification_log(
-                        &state,
-                        &format!("Steam scan skipped app {game_id}: {message}"),
-                    );
-                }
+                notification_log(
+                    &state,
+                    &format!("Steam scan skipped app {game_id}: {message}"),
+                );
             }
         }
         if settings.steam_library_mode == "installed" {
@@ -2064,7 +2056,6 @@ fn scan_sources_sync(
                 if let Ok(store) = state.store.lock() {
                     let _ = store.save_game_metadata(&game_id, &name, None);
                 }
-                scanned_games.insert(game_id);
             }
         } else if settings.steam_library_mode == "owned" {
             let detected_accounts = steam::accounts(&settings.source_locations);
@@ -2084,7 +2075,6 @@ fn scan_sources_sync(
                         if let Ok(store) = state.store.lock() {
                             let _ = store.save_game_metadata(&game_id, &name, icon.as_deref());
                         }
-                        scanned_games.insert(game_id);
                     }
                 }
                 Err(message) => notification_log(&state, &format!("Steam owned games: {message}")),
@@ -2113,6 +2103,11 @@ fn scan_sources_sync(
             serde_json::json!({ "completed": registry_count + index + 1, "total": total }),
         );
         emit_operation(&app, state.jobs.progress(registry_count + index + 1, total));
+    }
+    for (game_id, name) in shortcut_games {
+        if let Ok(store) = state.store.lock() {
+            let _ = store.save_game_metadata(&game_id, &name, None);
+        }
     }
     configure_watcher(&app, &state, &settings)?;
     dispatch_pending(&app, &state)?;
