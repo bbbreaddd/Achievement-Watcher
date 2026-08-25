@@ -30,7 +30,26 @@ pub fn steam_install_paths() -> Vec<PathBuf> {
     paths
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn steam_install_paths() -> Vec<PathBuf> {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    let mut paths = [
+        home.join(".local/share/Steam"),
+        home.join(".steam/steam"),
+        home.join(".steam/root"),
+        home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
+    ]
+    .into_iter()
+    .filter_map(|path| path.canonicalize().ok())
+    .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn steam_install_paths() -> Vec<PathBuf> {
     Vec::new()
 }
@@ -51,7 +70,14 @@ pub fn documents_path() -> Option<PathBuf> {
         })
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn documents_path() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join("Documents"))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn documents_path() -> Option<PathBuf> {
     None
 }
