@@ -1,4 +1,6 @@
 mod artwork;
+#[cfg(target_os = "linux")]
+mod decky;
 mod game_bar;
 mod gntp;
 mod jobs;
@@ -170,6 +172,59 @@ struct DownloadableUpdate {
 }
 
 type CommandResult<T> = Result<T, String>;
+
+#[tauri::command]
+fn decky_companion_status() -> serde_json::Value {
+    #[cfg(target_os = "linux")]
+    {
+        serde_json::to_value(decky::status()).unwrap_or_default()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        serde_json::json!({
+            "deckyInstalled": false,
+            "companionInstalled": false,
+            "installedVersion": null,
+            "availableVersion": env!("CARGO_PKG_VERSION"),
+            "authenticationRequired": false,
+            "polkitAvailable": false
+        })
+    }
+}
+
+#[tauri::command]
+async fn install_decky_companion(app: AppHandle) -> CommandResult<()> {
+    #[cfg(target_os = "linux")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            decky::install()?;
+            let state = app.state::<AppState>();
+            let mut settings = state
+                .store
+                .lock()
+                .map_err(lock_error)?
+                .load_settings()
+                .map_err(error)?;
+            settings.websocket_enabled = true;
+            settings.websocket_host = "127.0.0.1".into();
+            settings.websocket_port = 8082;
+            state
+                .store
+                .lock()
+                .map_err(lock_error)?
+                .save_settings(&settings)
+                .map_err(error)?;
+            state.websocket.configure(true, "127.0.0.1", 8082)
+        })
+        .await
+        .map_err(error)?
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+        Err("The Decky companion is available only on Linux".into())
+    }
+}
 
 fn emit_operation(app: &AppHandle, snapshot: jobs::OperationSnapshot) {
     let _ = app.emit("operation-status", snapshot);
@@ -4818,6 +4873,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             platform_capabilities,
+            decky_companion_status,
+            install_decky_companion,
             load_settings,
             read_profile_avatar,
             read_notification_audio,
