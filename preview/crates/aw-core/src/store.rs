@@ -479,16 +479,28 @@ impl Store {
         locked_icon: Option<&str>,
         hidden: bool,
     ) -> Result<()> {
-        self.connection.execute(
-            "INSERT INTO achievement_metadata(game_id,achievement_id,display_name,description,icon,locked_icon,hidden)
-             VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(game_id,achievement_id) DO UPDATE SET
-             display_name=COALESCE(excluded.display_name,achievement_metadata.display_name),
-             description=COALESCE(excluded.description,achievement_metadata.description),
-             icon=COALESCE(excluded.icon,achievement_metadata.icon),
-             locked_icon=COALESCE(excluded.locked_icon,achievement_metadata.locked_icon),
-             hidden=excluded.hidden",
-            params![game_id, achievement_id, display_name, description, icon, locked_icon, hidden as i64],
+        let updated = self.connection.execute(
+            "UPDATE achievement_metadata SET
+             display_name=COALESCE(?3,display_name),description=COALESCE(?4,description),
+             icon=COALESCE(?5,icon),locked_icon=COALESCE(?6,locked_icon),hidden=?7
+             WHERE game_id=?1 AND achievement_id=?2 COLLATE NOCASE",
+            params![
+                game_id,
+                achievement_id,
+                display_name,
+                description,
+                icon,
+                locked_icon,
+                hidden as i64
+            ],
         )?;
+        if updated == 0 {
+            self.connection.execute(
+            "INSERT INTO achievement_metadata(game_id,achievement_id,display_name,description,icon,locked_icon,hidden)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![game_id, achievement_id, display_name, description, icon, locked_icon, hidden as i64],
+            )?;
+        }
         Ok(())
     }
 
@@ -498,18 +510,24 @@ impl Store {
         achievement_id: &str,
         hundredths: u32,
     ) -> Result<()> {
-        self.connection.execute(
-            "INSERT INTO achievement_metadata(game_id,achievement_id,global_percent_hundredths)
-             VALUES(?1,?2,?3) ON CONFLICT(game_id,achievement_id) DO UPDATE SET
-             global_percent_hundredths=excluded.global_percent_hundredths",
+        let updated = self.connection.execute(
+            "UPDATE achievement_metadata SET global_percent_hundredths=?3
+             WHERE game_id=?1 AND achievement_id=?2 COLLATE NOCASE",
             params![game_id, achievement_id, hundredths],
         )?;
+        if updated == 0 {
+            self.connection.execute(
+                "INSERT INTO achievement_metadata(game_id,achievement_id,global_percent_hundredths)
+                 VALUES(?1,?2,?3)",
+                params![game_id, achievement_id, hundredths],
+            )?;
+        }
         Ok(())
     }
 
     pub fn enrich_observations(&self, observations: &mut [AchievementObservation]) -> Result<()> {
         let mut statement = self.connection.prepare(
-            "SELECT display_name,description,icon,locked_icon,hidden,global_percent_hundredths FROM achievement_metadata
+            "SELECT MAX(display_name),MAX(description),MAX(icon),MAX(locked_icon),MAX(hidden),MAX(global_percent_hundredths) FROM achievement_metadata
              WHERE game_id=?1 AND achievement_id=?2 COLLATE NOCASE",
         )?;
         for observation in observations {
@@ -562,7 +580,7 @@ impl Store {
 
     pub fn catalog_games(&self) -> Result<Vec<GameSummary>> {
         let mut statement = self.connection.prepare(
-            "SELECT games.game_id,games.name,games.icon,COUNT(achievement_metadata.achievement_id)
+            "SELECT games.game_id,games.name,games.icon,COUNT(DISTINCT achievement_metadata.achievement_id COLLATE NOCASE)
              FROM games LEFT JOIN achievement_metadata USING(game_id)
              GROUP BY games.game_id,games.name,games.icon ORDER BY games.name COLLATE NOCASE",
         )?;
@@ -590,8 +608,9 @@ impl Store {
 
     pub fn catalog_achievements(&self, game_id: &str) -> Result<Vec<AchievementObservation>> {
         let mut statement = self.connection.prepare(
-            "SELECT achievement_id,display_name,description,COALESCE(locked_icon,icon),hidden,global_percent_hundredths FROM achievement_metadata
-             WHERE game_id=?1 ORDER BY display_name COLLATE NOCASE,achievement_id",
+            "SELECT MIN(achievement_id),MAX(display_name),MAX(description),COALESCE(MAX(locked_icon),MAX(icon)),MAX(hidden),MAX(global_percent_hundredths)
+             FROM achievement_metadata WHERE game_id=?1 GROUP BY achievement_id COLLATE NOCASE
+             ORDER BY MAX(display_name) COLLATE NOCASE,MIN(achievement_id)",
         )?;
         let rows = statement.query_map([game_id], |row| {
             Ok(AchievementObservation {
@@ -790,6 +809,40 @@ mod tests {
         store.enrich_observations(&mut unlocked).unwrap();
         assert_eq!(locked[0].icon.as_deref(), Some("locked.png"));
         assert_eq!(unlocked[0].icon.as_deref(), Some("unlocked.png"));
+    }
+
+    #[test]
+    fn achievement_metadata_ids_are_case_insensitive() {
+        let store = Store::open_memory().unwrap();
+        store
+            .save_achievement_metadata(
+                "883710",
+                "new_achievement_1_1",
+                Some("Welcome to the City of the Dead"),
+                None,
+                Some("re2.png"),
+                None,
+                false,
+            )
+            .unwrap();
+        store
+            .save_global_percent("883710", "NEW_ACHIEVEMENT_1_1", 8_421)
+            .unwrap();
+
+        let mut observations = vec![observation(false, 0)];
+        observations[0].game_id = "883710".into();
+        observations[0].achievement_id = "NEW_ACHIEVEMENT_1_1".into();
+        observations[0].display_name = None;
+        observations[0].icon = None;
+        store.enrich_observations(&mut observations).unwrap();
+
+        assert_eq!(
+            observations[0].display_name.as_deref(),
+            Some("Welcome to the City of the Dead")
+        );
+        assert_eq!(observations[0].icon.as_deref(), Some("re2.png"));
+        assert_eq!(observations[0].global_percent_hundredths, Some(8_421));
+        assert_eq!(store.catalog_achievements("883710").unwrap().len(), 1);
     }
 
     #[test]
