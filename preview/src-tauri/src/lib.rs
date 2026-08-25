@@ -2982,6 +2982,11 @@ async fn test_notification(
 }
 
 #[tauri::command]
+fn notification_preset_config(preset: String) -> notification_preset::NotificationPreset {
+    notification_preset::resolve(&preset)
+}
+
+#[tauri::command]
 async fn test_progress_notification(
     app: AppHandle,
     presentation: Option<NotificationPresentationSettings>,
@@ -4835,6 +4840,7 @@ pub fn run() {
             clear_game_metadata,
             reset_game_activity,
             test_notification,
+            notification_preset_config,
             test_progress_notification,
             test_playtime_notification,
             test_game_bar,
