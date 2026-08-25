@@ -1221,6 +1221,42 @@ fn source_uses_steam_metadata(kind: aw_core::SourceKind) -> bool {
     )
 }
 
+fn sanitize_steam_xml(xml: &str) -> String {
+    let mut output = String::with_capacity(xml.len());
+    let mut remaining = xml;
+    while let Some(index) = remaining.find('&') {
+        output.push_str(&remaining[..index]);
+        remaining = &remaining[index + 1..];
+        let entity_end = remaining.find(';').filter(|end| *end <= 10);
+        let valid_entity = entity_end.is_some_and(|end| {
+            let entity = &remaining[..end];
+            matches!(entity, "amp" | "lt" | "gt" | "quot" | "apos")
+                || entity.strip_prefix('#').is_some_and(|number| {
+                    number.parse::<u32>().is_ok()
+                        || number
+                            .strip_prefix(['x', 'X'])
+                            .is_some_and(|hex| u32::from_str_radix(hex, 16).is_ok())
+                })
+        });
+        output.push_str(if valid_entity { "&" } else { "&amp;" });
+    }
+    output.push_str(remaining);
+    output
+}
+
+fn steam_xml_section(xml: &str, root: &str) -> CommandResult<String> {
+    let opening = format!("<{root}");
+    let closing = format!("</{root}>");
+    let start = xml
+        .find(&opening)
+        .ok_or_else(|| "Steam Community returned an HTML page instead of XML data".to_string())?;
+    let end = xml[start..]
+        .find(&closing)
+        .map(|offset| start + offset + closing.len())
+        .ok_or_else(|| "Steam Community returned incomplete XML data".to_string())?;
+    Ok(sanitize_steam_xml(&xml[start..end]))
+}
+
 fn source_kind_enabled(settings: &AppSettings, kind: aw_core::SourceKind) -> bool {
     match kind {
         aw_core::SourceKind::Steam => settings.steam_enabled,
@@ -2914,6 +2950,9 @@ fn import_community_schema_as(
         let Ok(xml) = response.into_string() else {
             continue;
         };
+        let Ok(xml) = steam_xml_section(&xml, "playerstats") else {
+            continue;
+        };
         let Ok(schema) = quick_xml::de::from_str::<CommunityStats>(&xml) else {
             continue;
         };
@@ -3657,7 +3696,8 @@ fn owned_steam_games(
         .map_err(error)?
         .into_string()
         .map_err(error)?;
-    let games = quick_xml::de::from_str::<OwnedGames>(&xml).map_err(error)?;
+    let games = quick_xml::de::from_str::<OwnedGames>(&steam_xml_section(&xml, "gamesList")?)
+        .map_err(error)?;
     if games.games.games.is_empty() {
         return Err("Steam returned no owned games; the profile may be private".into());
     }
@@ -3726,7 +3766,9 @@ fn read_steam_fallback(
         .map_err(error)?
         .into_string()
         .map_err(error)?;
-    let response = quick_xml::de::from_str::<CommunityStats>(&xml).map_err(error)?;
+    let response =
+        quick_xml::de::from_str::<CommunityStats>(&steam_xml_section(&xml, "playerstats")?)
+            .map_err(error)?;
     if response.achievements.items.is_empty() {
         return Err("Steam profile returned no achievement data; it may be private".into());
     }
@@ -4852,7 +4894,8 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
 mod tests {
     use super::{
         deduplicate_source_locations, effective_notification_mode, emulator_config_value,
-        source_uses_steam_metadata, stable_source_id, steam_id64, steam_percentage,
+        sanitize_steam_xml, source_uses_steam_metadata, stable_source_id, steam_id64,
+        steam_percentage, steam_xml_section,
     };
     use aw_core::{AppSettings, NotificationMode, SourceKind, SourceLocation};
     use std::path::Path;
@@ -4889,6 +4932,23 @@ mod tests {
         assert_eq!(steam_percentage(&serde_json::json!("70.7")), Some(70.7));
         assert_eq!(steam_percentage(&serde_json::json!(12.5)), Some(12.5));
         assert_eq!(steam_percentage(&serde_json::json!("unknown")), None);
+    }
+
+    #[test]
+    fn repairs_bare_ampersands_in_steam_xml() {
+        assert_eq!(
+            sanitize_steam_xml("<name>One & Two &amp; Three &#38; Four</name>"),
+            "<name>One &amp; Two &amp; Three &#38; Four</name>"
+        );
+        assert_eq!(
+            steam_xml_section(
+                "<html>noise</html><playerstats><name>One & Two</name></playerstats>",
+                "playerstats"
+            )
+            .unwrap(),
+            "<playerstats><name>One &amp; Two</name></playerstats>"
+        );
+        assert!(steam_xml_section("<html>Steam Community</html>", "playerstats").is_err());
     }
 
     #[test]
