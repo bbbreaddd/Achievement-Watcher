@@ -2122,8 +2122,13 @@ fn scan_sources_sync(
         }
         if settings.steam_library_mode == "installed" {
             for (game_id, name) in steam::installed_games(location) {
+                let artwork = steam::local_game_artwork(location, &game_id);
                 if let Ok(store) = state.store.lock() {
-                    let _ = store.save_game_metadata(&game_id, &name, None);
+                    let _ = store.save_game_metadata(
+                        &game_id,
+                        &name,
+                        artwork.as_deref().and_then(Path::to_str),
+                    );
                 }
             }
         } else if settings.steam_library_mode == "owned" {
@@ -2174,8 +2179,17 @@ fn scan_sources_sync(
         emit_operation(&app, state.jobs.progress(registry_count + index + 1, total));
     }
     for (game_id, name) in shortcut_games {
+        let artwork = settings
+            .source_locations
+            .iter()
+            .filter(|location| location.kind == aw_core::SourceKind::Steam)
+            .find_map(|location| steam::local_game_artwork(location, &game_id));
         if let Ok(store) = state.store.lock() {
-            let _ = store.save_game_metadata_if_achievements(&game_id, &name, None);
+            let _ = store.save_game_metadata_if_achievements(
+                &game_id,
+                &name,
+                artwork.as_deref().and_then(Path::to_str),
+            );
         }
     }
     configure_watcher(&app, &state, &settings)?;

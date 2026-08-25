@@ -170,6 +170,39 @@ pub fn shortcut_games(location: &SourceLocation) -> Vec<(String, String)> {
     games
 }
 
+pub fn local_game_artwork(location: &SourceLocation, game_id: &str) -> Option<PathBuf> {
+    let steam_root = location.path.parent().and_then(Path::parent)?;
+    let cache = steam_root.join("appcache/librarycache").join(game_id);
+    for name in [
+        "header.jpg",
+        "header.png",
+        "library_header.jpg",
+        "library_header.png",
+        "library_600x900.jpg",
+        "library_600x900.png",
+    ] {
+        let candidate = cache.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    let users = std::fs::read_dir(steam_root.join("userdata")).ok()?;
+    for grid in users
+        .filter_map(Result::ok)
+        .map(|user| user.path().join("config/grid"))
+    {
+        for suffix in [
+            ".png", ".jpg", ".jpeg", ".webp", "p.png", "p.jpg", "p.jpeg", "p.webp",
+        ] {
+            let candidate = grid.join(format!("{game_id}{suffix}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 fn parse_shortcuts(content: &[u8]) -> Vec<(String, String)> {
     const APP_ID: &[u8] = b"\x02appid\0";
     const APP_NAME: &[u8] = b"\x01appname\0";
@@ -382,6 +415,29 @@ mod tests {
             parse_shortcuts(&content),
             [("3026956319".into(), "Resident Evil 2 Randomizer".into())]
         );
+    }
+
+    #[test]
+    fn prefers_local_steam_library_artwork() {
+        let root = std::env::temp_dir().join(format!(
+            "achievement-watcher-steam-artwork-{}",
+            std::process::id()
+        ));
+        let stats = root.join("appcache/stats");
+        let cover = root.join("appcache/librarycache/400/library_600x900.jpg");
+        std::fs::create_dir_all(&stats).unwrap();
+        std::fs::create_dir_all(cover.parent().unwrap()).unwrap();
+        std::fs::write(&cover, b"cover").unwrap();
+        let location = SourceLocation {
+            id: "steam".into(),
+            kind: aw_core::SourceKind::Steam,
+            path: stats,
+            enabled: true,
+            notify: true,
+        };
+
+        assert_eq!(local_game_artwork(&location, "400"), Some(cover));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(target_os = "linux")]
