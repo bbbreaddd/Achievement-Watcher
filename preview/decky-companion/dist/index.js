@@ -82,59 +82,28 @@ function FaTrophy (props) {
   return GenIcon({"attr":{"viewBox":"0 0 576 512"},"child":[{"tag":"path","attr":{"d":"M552 64H448V24c0-13.3-10.7-24-24-24H152c-13.3 0-24 10.7-24 24v40H24C10.7 64 0 74.7 0 88v56c0 35.7 22.5 72.4 61.9 100.7 31.5 22.7 69.8 37.1 110 41.7C203.3 338.5 240 360 240 360v72h-48c-35.3 0-64 20.7-64 56v12c0 6.6 5.4 12 12 12h296c6.6 0 12-5.4 12-12v-12c0-35.3-28.7-56-64-56h-48v-72s36.7-21.5 68.1-73.6c40.3-4.6 78.6-19 110-41.7 39.3-28.3 61.9-65 61.9-100.7V88c0-13.3-10.7-24-24-24zM99.3 192.8C74.9 175.2 64 155.6 64 144v-16h64.2c1 32.6 5.8 61.2 12.8 86.2-15.1-5.2-29.2-12.4-41.7-21.4zM512 144c0 16.1-17.7 36.1-35.3 48.8-12.5 9-26.7 16.2-41.8 21.4 7-25 11.8-53.6 12.8-86.2H512v16z"},"child":[]}]})(props);
 }
 
-const NON_STEAM_APP = 1073741824;
-const SECTION_ID = 'achievement-watcher-poc';
-function ProofOfConcept({ appId }) {
-    return (SP_JSX.jsxs("section", { id: SECTION_ID, style: {
-            margin: '16px 0',
-            padding: '18px 20px',
-            background: 'rgba(14, 20, 27, 0.92)',
+const APP_ROUTE = '/library/app/:appid';
+function GamePageProbe() {
+    const appId = window.location.pathname.match(/\/library\/app\/(\d+)/)?.[1];
+    return (SP_JSX.jsxs("aside", { style: {
+            position: 'fixed',
+            right: 24,
+            bottom: 24,
+            zIndex: 1000,
+            padding: '12px 16px',
+            background: '#17212b',
             borderLeft: '4px solid #66c0f4',
             color: '#f5f5f5',
-        }, children: [SP_JSX.jsx("div", { style: { fontSize: 20, fontWeight: 600 }, children: "Achievement Watcher" }), SP_JSX.jsxs("div", { style: { marginTop: 5, color: '#acb2b8', fontSize: 14 }, children: ["Game page connection working \u00B7 App ", appId] })] }));
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
+            pointerEvents: 'none',
+        }, children: [SP_JSX.jsx("div", { style: { fontSize: 16, fontWeight: 600 }, children: "Achievement Watcher" }), SP_JSX.jsxs("div", { style: { marginTop: 3, color: '#acb2b8', fontSize: 12 }, children: ["Game page connection working", appId ? ` · App ${appId}` : ''] })] }));
 }
 function patchAppPage() {
-    const nestedPatches = new Set();
-    const patchedOwners = new Set();
-    const routePatch = routerHook.addPatch('/library/app/:appid', (props) => {
-        const renderOwner = props.children?.props;
-        if (!renderOwner?.renderFunc || renderOwner.renderFunc.__achievementWatcherPatched) {
-            return props;
-        }
-        const renderPatch = DFL.afterPatch(renderOwner, 'renderFunc', (_args, page) => {
-            const overview = page?.props?.children?.props?.overview;
-            if (overview?.app_type !== NON_STEAM_APP)
-                return page;
-            const contentOwner = DFL.wrapReactType(page.props.children);
-            if (contentOwner.__achievementWatcherPatched)
-                return page;
-            const contentPatch = DFL.afterPatch(contentOwner, 'type', (_innerArgs, content) => {
-                const sections = content?.props?.children?.[1]?.props?.children?.props?.children;
-                if (!Array.isArray(sections) || sections.some((child) => child?.props?.id === SECTION_ID)) {
-                    return content;
-                }
-                sections.unshift(SP_JSX.jsx(ProofOfConcept, { appId: overview.appid }));
-                return content;
-            });
-            contentOwner.__achievementWatcherPatched = true;
-            patchedOwners.add(contentOwner);
-            nestedPatches.add(contentPatch);
-            return page;
-        });
-        renderOwner.renderFunc.__achievementWatcherPatched = true;
-        patchedOwners.add(renderOwner.renderFunc);
-        nestedPatches.add(renderPatch);
-        return props;
-    });
-    return () => {
-        routerHook.removePatch('/library/app/:appid', routePatch);
-        for (const patch of nestedPatches) {
-            if (!patch.hasUnpatched)
-                patch.unpatch();
-        }
-        for (const owner of patchedOwners)
-            delete owner.__achievementWatcherPatched;
-    };
+    const routePatch = routerHook.addPatch(APP_ROUTE, (props) => ({
+        ...props,
+        children: (SP_JSX.jsxs(SP_JSX.Fragment, { children: [props.children, SP_JSX.jsx(GamePageProbe, {})] })),
+    }));
+    return () => routerHook.removePatch(APP_ROUTE, routePatch);
 }
 
 function Content() {
