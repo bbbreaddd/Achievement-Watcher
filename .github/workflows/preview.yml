@@ -105,3 +105,54 @@ jobs:
             preview-artifacts/desktop/*.exe
             preview-artifacts/desktop/*.sha256
             preview-artifacts/game-bar-companion/*
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: preview/package-lock.json
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Apply preview tag version
+        if: startsWith(github.ref, 'refs/tags/preview-v')
+        run: |
+          version="${GITHUB_REF_NAME#preview-v}"
+          cd preview
+          npm version "$version" --no-git-tag-version
+          node -e "const fs=require('fs'); const path='src-tauri/tauri.conf.json'; const config=JSON.parse(fs.readFileSync(path)); config.version=process.argv[1]; fs.writeFileSync(path, JSON.stringify(config, null, 2)+'\n')" "$version"
+          sed -i -E "s/^version = \"[^\"]+\"/version = \"$version\"/" Cargo.toml
+          cargo generate-lockfile
+      - run: npm ci
+        working-directory: preview
+      - name: Build AppImage and Debian package
+        run: npm run tauri build -- --bundles appimage,deb
+        working-directory: preview
+      - name: Collect Linux packages
+        run: |
+          mkdir -p preview-artifacts/linux
+          find preview/target/release/bundle -type f \( -name '*.AppImage' -o -name '*.deb' \) -exec cp {} preview-artifacts/linux/ \;
+          cd preview-artifacts/linux
+          sha256sum *.AppImage *.deb > SHA256SUMS
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: achievement-watcher-preview-linux
+          path: preview-artifacts/linux
+          if-no-files-found: error
+      - name: Publish Linux preview packages
+        if: startsWith(github.ref, 'refs/tags/preview-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            preview-artifacts/linux/*.AppImage
+            preview-artifacts/linux/*.deb
+            preview-artifacts/linux/SHA256SUMS
