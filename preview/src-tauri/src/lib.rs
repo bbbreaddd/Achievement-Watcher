@@ -2123,11 +2123,17 @@ fn scan_sources_sync(
         if settings.steam_library_mode == "installed" {
             for (game_id, name) in steam::installed_games(location) {
                 let artwork = steam::local_game_artwork(location, &game_id);
+                let fallback = format!(
+                    "https://cdn.cloudflare.steamstatic.com/steam/apps/{game_id}/header.jpg"
+                );
                 if let Ok(store) = state.store.lock() {
                     let _ = store.save_game_metadata(
                         &game_id,
                         &name,
-                        artwork.as_deref().and_then(Path::to_str),
+                        artwork
+                            .as_deref()
+                            .and_then(Path::to_str)
+                            .or(Some(fallback.as_str())),
                     );
                 }
             }
