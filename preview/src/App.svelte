@@ -43,7 +43,7 @@
   let unlockedCollapsed = false;
   let lockedCollapsed = false;
   let hiddenCollapsed = false;
-  let steamAccounts: Array<{ accountId: string; steamId: string; name: string; mostRecent: boolean; avatarPath?: string }> = [];
+  let steamAccounts: Array<{ accountId: string; steamId: string; name: string; mostRecent: boolean; localUserMatch: boolean; avatarPath?: string }> = [];
   let gameConfig: { game: GameSummary; executable: string; arguments: string } | null = null;
   let highlightedAchievement = '';
   let revealHiddenForGame = false;
@@ -304,6 +304,7 @@
   function activeSteamAccount() {
     return steamAccounts.find((account) => account.accountId === settings?.steamAccountId || account.steamId === settings?.steamAccountId)
       ?? steamAccounts.find((account) => account.mostRecent)
+      ?? steamAccounts.find((account) => account.localUserMatch)
       ?? steamAccounts[0];
   }
 
@@ -1247,7 +1248,7 @@
       <div class="settings-group">
         <h3>Official Steam</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.steamEnabled} onchange={save} /> Monitor the signed-in Steam account</label>
-        {#if settings.steamEnabled}<label class="field"><span>Games to display</span><select bind:value={settings.steamLibraryMode} onchange={save}><option value="played">Games with local Steam stats</option><option value="installed">Installed</option><option value="owned">Owned (public profile or API key)</option></select></label><label class="check"><input type="checkbox" bind:checked={settings.steamPublicFallback} onchange={save} /> Read achievement details from the public Steam profile</label>{#if steamAccounts.length}<label class="field"><span>Steam account</span><select bind:value={settings.steamAccountId} onchange={save}><option value={undefined}>Most recently used account</option>{#each steamAccounts as account}<option value={account.accountId}>{account.name || account.steamId}{account.mostRecent ? ' (recent)' : ''}</option>{/each}</select></label>{:else}<label class="field"><span>Steam account</span><input bind:value={settings.steamAccountId} onchange={save} placeholder="Detected automatically" /></label>{/if}<p class="settings-help">Achievement Watcher watches Steam's local stats cache for changes. A public profile or API key is needed to resolve the complete achievement list.</p>{/if}
+        {#if settings.steamEnabled}<label class="field"><span>Games to display</span><select bind:value={settings.steamLibraryMode} onchange={save}><option value="played">Games with local Steam stats</option><option value="installed">Installed</option><option value="owned">Owned (public profile or API key)</option></select></label><label class="check"><input type="checkbox" bind:checked={settings.steamPublicFallback} onchange={save} /> Read achievement details from the public Steam profile</label>{#if steamAccounts.length}<label class="field"><span>Steam account</span><select bind:value={settings.steamAccountId} onchange={save}><option value={undefined}>Detected automatically</option>{#each steamAccounts as account}<option value={account.accountId}>{account.name || account.steamId}{account.mostRecent ? ' (recent)' : account.localUserMatch ? ' (local user)' : ''}</option>{/each}</select></label>{:else}<label class="field"><span>Steam account</span><input bind:value={settings.steamAccountId} onchange={save} placeholder="Detected automatically" /></label>{/if}<p class="settings-help">Achievement Watcher watches Steam's local stats cache for changes. A public profile or API key is needed to resolve the complete achievement list.</p>{/if}
       </div>
       {#if settings.steamEnabled}<div class="settings-group">
         <h3>Steam Web API</h3>
