@@ -2030,6 +2030,12 @@ fn scan_sources_sync(
         settings.steam_enabled && location.enabled && location.kind == aw_core::SourceKind::Steam
     }) {
         let mut scanned_games = HashSet::new();
+        for (game_id, name) in steam::shortcut_games(location) {
+            if let Ok(store) = state.store.lock() {
+                let _ = store.save_game_metadata(&game_id, &name, None);
+            }
+            scanned_games.insert(game_id);
+        }
         for path in steam::stats_files(location) {
             if let Some((account_id, game_id)) = steam::stats_file_identity(&path)
                 && steam_account_matches(settings.steam_account_id.as_deref(), &account_id)

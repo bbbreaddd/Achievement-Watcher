@@ -153,6 +153,61 @@ pub fn installed_games(location: &SourceLocation) -> Vec<(String, String)> {
     games
 }
 
+pub fn shortcut_games(location: &SourceLocation) -> Vec<(String, String)> {
+    let Some(steam_root) = location.path.parent().and_then(Path::parent) else {
+        return Vec::new();
+    };
+    let Ok(users) = std::fs::read_dir(steam_root.join("userdata")) else {
+        return Vec::new();
+    };
+    let mut games = users
+        .filter_map(Result::ok)
+        .filter_map(|user| std::fs::read(user.path().join("config/shortcuts.vdf")).ok())
+        .flat_map(|content| parse_shortcuts(&content))
+        .collect::<Vec<_>>();
+    games.sort_by(|left, right| left.0.cmp(&right.0));
+    games.dedup_by(|left, right| left.0 == right.0);
+    games
+}
+
+fn parse_shortcuts(content: &[u8]) -> Vec<(String, String)> {
+    const APP_ID: &[u8] = b"\x02appid\0";
+    const APP_NAME: &[u8] = b"\x01appname\0";
+    let mut games = Vec::new();
+    let mut position = 0;
+    while let Some(relative) = content[position..]
+        .windows(APP_ID.len())
+        .position(|window| window == APP_ID)
+    {
+        let id_position = position + relative + APP_ID.len();
+        let Some(id_bytes) = content.get(id_position..id_position + 4) else {
+            break;
+        };
+        let next_entry = content[id_position + 4..]
+            .windows(APP_ID.len())
+            .position(|window| window == APP_ID)
+            .map_or(content.len(), |next| id_position + 4 + next);
+        let fields = &content[id_position + 4..next_entry];
+        if let Some(name_position) = fields
+            .windows(APP_NAME.len())
+            .position(|window| window == APP_NAME)
+        {
+            let name = &fields[name_position + APP_NAME.len()..];
+            let name = &name[..name
+                .iter()
+                .position(|byte| *byte == 0)
+                .unwrap_or(name.len())];
+            let name = String::from_utf8_lossy(name).trim().to_owned();
+            if !name.is_empty() {
+                let app_id = u32::from_le_bytes(id_bytes.try_into().expect("four-byte app ID"));
+                games.push((app_id.to_string(), name));
+            }
+        }
+        position = next_entry;
+    }
+    games
+}
+
 pub fn is_steam_runtime(name: &str) -> bool {
     let name = name.trim().to_ascii_lowercase();
     name.starts_with("proton ")
@@ -314,6 +369,19 @@ mod tests {
             [("400".into(), "Portal".into())]
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reads_custom_game_names_from_shortcuts() {
+        let mut content = b"shortcuts\0\0".to_vec();
+        content.extend_from_slice(b"\x02appid\0");
+        content.extend_from_slice(&3_026_956_319_u32.to_le_bytes());
+        content.extend_from_slice(b"\x01appname\0Resident Evil 2 Randomizer\0\x01exe\0re2.exe\0");
+
+        assert_eq!(
+            parse_shortcuts(&content),
+            [("3026956319".into(), "Resident Evil 2 Randomizer".into())]
+        );
     }
 
     #[cfg(target_os = "linux")]
