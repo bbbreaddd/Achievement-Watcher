@@ -61,6 +61,28 @@ fn platform_capabilities() -> platform::Capabilities {
     platform::capabilities()
 }
 
+fn effective_notification_mode(
+    configured: NotificationMode,
+    wayland_session: bool,
+    game_running: bool,
+) -> NotificationMode {
+    if wayland_session && game_running {
+        NotificationMode::NativeOnly
+    } else {
+        configured
+    }
+}
+
+fn notification_mode_for_session(configured: NotificationMode) -> NotificationMode {
+    let wayland_session = cfg!(target_os = "linux")
+        && std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty());
+    effective_notification_mode(
+        configured,
+        wayland_session,
+        steam::running_app_id().is_some(),
+    )
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenGameRequest {
@@ -2121,7 +2143,7 @@ fn handle_created_events(
             }
         }
         if event.kind == aw_core::NotificationKind::Unlock && event.attempts == 0 {
-            if settings.screenshot_enabled {
+            if settings.screenshot_enabled && platform::capabilities().screenshots {
                 let achievement = event
                     .observation
                     .display_name
@@ -2218,6 +2240,7 @@ fn handle_created_events(
         if event.kind == aw_core::NotificationKind::Unlock
             && event.attempts == 0
             && settings.rumble_enabled
+            && platform::capabilities().rumble
         {
             rumble::pulse(
                 settings.rumble_strength_percent,
@@ -2961,7 +2984,8 @@ fn deliver_transient(
         .map_err(lock_error)?
         .load_settings()
         .map_err(error)?;
-    let presentation = presentation.unwrap_or_else(|| (&settings).into());
+    let mut presentation = presentation.unwrap_or_else(|| (&settings).into());
+    presentation.mode = notification_mode_for_session(presentation.mode);
     if presentation.mode == NotificationMode::NativeOnly {
         deliver_native(app, state, &event, Some(&presentation))
     } else {
@@ -4068,7 +4092,8 @@ fn dispatch_pending(app: &AppHandle, state: &State<'_, AppState>) -> CommandResu
             }
             continue;
         }
-        if settings.game_bar_enabled
+        if platform::capabilities().game_bar
+            && settings.game_bar_enabled
             && (!settings.game_bar_fullscreen_only || foreground_is_fullscreen())
         {
             match state.game_bar.deliver(&settings.game_bar_token, &event) {
@@ -4094,7 +4119,14 @@ fn dispatch_pending(app: &AppHandle, state: &State<'_, AppState>) -> CommandResu
                 Err(_) => {}
             }
         }
-        match settings.notification_mode {
+        let delivery_mode = notification_mode_for_session(settings.notification_mode);
+        if delivery_mode != settings.notification_mode {
+            notification_log(
+                state,
+                "using native delivery while a Steam game is running on Wayland",
+            );
+        }
+        match delivery_mode {
             NotificationMode::NativeOnly => deliver_native(app, state, &event, None)?,
             NotificationMode::OverlayOnly | NotificationMode::OverlayWithNativeFallback => {
                 if state.current_overlay.lock().map_err(lock_error)?.is_some() {
@@ -4805,10 +4837,10 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        deduplicate_source_locations, emulator_config_value, source_uses_steam_metadata,
-        stable_source_id, steam_id64, steam_percentage,
+        deduplicate_source_locations, effective_notification_mode, emulator_config_value,
+        source_uses_steam_metadata, stable_source_id, steam_id64, steam_percentage,
     };
-    use aw_core::{AppSettings, SourceKind, SourceLocation};
+    use aw_core::{AppSettings, NotificationMode, SourceKind, SourceLocation};
     use std::path::Path;
 
     #[test]
@@ -4843,6 +4875,22 @@ mod tests {
         assert_eq!(steam_percentage(&serde_json::json!("70.7")), Some(70.7));
         assert_eq!(steam_percentage(&serde_json::json!(12.5)), Some(12.5));
         assert_eq!(steam_percentage(&serde_json::json!("unknown")), None);
+    }
+
+    #[test]
+    fn wayland_games_use_native_notifications() {
+        assert_eq!(
+            effective_notification_mode(NotificationMode::OverlayOnly, true, true),
+            NotificationMode::NativeOnly
+        );
+        assert_eq!(
+            effective_notification_mode(NotificationMode::OverlayOnly, true, false),
+            NotificationMode::OverlayOnly
+        );
+        assert_eq!(
+            effective_notification_mode(NotificationMode::OverlayWithNativeFallback, false, true),
+            NotificationMode::OverlayWithNativeFallback
+        );
     }
 
     #[test]

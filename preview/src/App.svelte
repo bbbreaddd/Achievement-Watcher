@@ -15,7 +15,7 @@
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
-  import type { AchievementObservation, AppSettings, GameSummary, NotificationEvent, NotificationRenderRequest, OperationSnapshot, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
+  import type { AchievementObservation, AppSettings, GameSummary, NotificationEvent, NotificationRenderRequest, OperationSnapshot, PlatformCapabilities, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
   let settings: AppSettings | null = null;
@@ -57,6 +57,7 @@
   let blacklistedGames: Array<{ gameId: string; name: string }> = [];
   let defaultScreenshotDirectory = '';
   let defaultClipDirectory = '';
+  let capabilities: PlatformCapabilities = { os: 'unknown', gameBar: false, screenshots: false, rumble: false, customNotifications: false, automaticUpdateInstall: false };
   let notificationPreviewConfig: NotificationRenderRequest['presetConfig'] = { width: 382, height: 106, durationMs: 4_000 };
   let notificationPreviewRequest = 0;
   let savingSettings = false;
@@ -958,8 +959,9 @@
       await invoke('import_legacy').catch((error) => {
         status = `Legacy import skipped: ${String(error)}`;
       });
-      settings = await invoke<AppSettings>('load_settings');
-      [defaultScreenshotDirectory, defaultClipDirectory] = await Promise.all([
+      [settings, capabilities, defaultScreenshotDirectory, defaultClipDirectory] = await Promise.all([
+        invoke<AppSettings>('load_settings'),
+        invoke<PlatformCapabilities>('platform_capabilities'),
         invoke<string>('default_screenshot_directory'),
         invoke<string>('default_clip_directory'),
       ]);
@@ -1152,7 +1154,8 @@
         <label class="check nested"><input type="checkbox" bind:checked={settings.notifyOnProgress} onchange={save} /> Notify when achievement progress changes</label>
         <label class="check nested"><input type="checkbox" bind:checked={settings.notifyOnPlaytime} onchange={save} /> Notify when playtime tracking starts and stops</label>
         <label class="check nested"><input type="checkbox" bind:checked={settings.notificationShowDescription} onchange={save} /> Show achievement descriptions</label>
-        <label class="field"><span>Desktop delivery</span><select bind:value={settings.notificationMode} onchange={save}><option value="overlay_with_native_fallback">Custom popup with Windows fallback</option><option value="overlay_only">Custom popup only</option><option value="native_only">Windows notification only</option></select></label>
+        <label class="field"><span>Desktop delivery</span><select bind:value={settings.notificationMode} onchange={save}>{#if capabilities.customNotifications}<option value="overlay_with_native_fallback">Custom popup with native fallback</option><option value="overlay_only">Custom popup only</option>{/if}<option value="native_only">Native notification only</option></select></label>
+        {#if capabilities.os === 'linux'}<p class="settings-help">On Wayland, native notifications are used while a Steam game is running. Custom popups remain available on the desktop and in X11 sessions.</p>{/if}
         {/if}
       </div>
       {#if settings.notificationEnabled && settings.notificationMode !== 'native_only'}
@@ -1180,18 +1183,22 @@
         <label class="field"><span>Sound</span><select bind:value={settings.notificationSound} onchange={save}><option value="steam_deck">Steam Deck</option><option value="windows">Windows 10</option><option value="windows_11">Windows 11</option><option value="playstation">PlayStation</option><option value="playstation_5">PlayStation 5</option><option value="playstation_platinum">PlayStation 5 Platinum</option><option value="gog">GOG Galaxy</option><option value="android">Android Popcorn</option>{#if settings.notificationCustomSoundPath}<option value="custom">Custom file</option>{/if}<option value="none">None</option></select><button type="button" onclick={chooseNotificationSound}>Browse…</button></label>
         {#if settings.notificationSound === 'custom'}<div class="folder-setting nested"><span>Custom sound</span><code title={settings.notificationCustomSoundPath}>{settings.notificationCustomSoundPath}</code><button onclick={chooseNotificationSound}>Change</button><button onclick={() => { if (settings) { settings.notificationCustomSoundPath = undefined; settings.notificationSound = 'steam_deck'; void save(); } }}>Reset</button></div>{/if}
         {:else}
-        <p class="settings-help">Windows controls the sound used by native notifications.</p>
+        <p class="settings-help">The desktop notification service controls the sound used by native notifications.</p>
         {/if}
+        {#if capabilities.rumble}
         <label class="check"><input type="checkbox" bind:checked={settings.rumbleEnabled} onchange={save} /> Vibrate connected Xbox-compatible controllers on unlock</label>
         {#if settings.rumbleEnabled}<label class="field nested"><span>Rumble strength</span><input type="range" min="1" max="100" bind:value={settings.rumbleStrengthPercent} onchange={save} /><output>{settings.rumbleStrengthPercent}%</output></label><label class="field nested"><span>Rumble duration</span><select bind:value={settings.rumbleDurationMs} onchange={save}><option value={250}>Short</option><option value={450}>Normal</option><option value={800}>Long</option></select></label>{/if}
-        <p class="settings-help">Sound and controller vibration play only for delivered notifications and tests run from Diagnostics.</p>
+        {/if}
+        <p class="settings-help">Sound{capabilities.rumble ? ' and controller vibration' : ''} play only for delivered notifications and tests run from Diagnostics.</p>
       </div>
       {/if}
+      {#if capabilities.gameBar}
       <div class="settings-group">
         <h3>Fullscreen delivery</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.gameBarEnabled} onchange={save} /> Use Xbox Game Bar companion when available</label>
         {#if settings.gameBarEnabled}<label class="check nested"><input type="checkbox" bind:checked={settings.gameBarFullscreenOnly} onchange={save} /> Use the companion only while a fullscreen app is active</label><div class="token-row"><span>Pairing token</span><code>{settings.gameBarToken}</code><button onclick={() => invoke('test_game_bar', { settings }).then(() => status = 'Game Bar acknowledged the test').catch((error) => status = `Game Bar test failed: ${String(error)}`)}>Test</button></div>{/if}
       </div>
+      {/if}
       <div class="settings-group">
         <h3>In-game achievement overlay</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.achievementOverlayEnabled} onchange={save} /> Show the current game's achievement list over a running game</label>
@@ -1207,8 +1214,10 @@
       {:else if settingsTab === 'souvenir'}
       <div class="settings-group">
         <h3>Screenshot</h3>
+        {#if capabilities.screenshots}
         <label class="check"><input type="checkbox" bind:checked={settings.screenshotEnabled} onchange={save} /> Save a screenshot when an achievement unlocks</label>
         {#if settings.screenshotEnabled}<p class="settings-help">Screenshots are organized into a folder for each game. Repeated unlocks are saved as additional timestamped copies.</p><div class="folder-setting"><span>Save location</span><code>{settings.screenshotDirectory ?? defaultScreenshotDirectory}</code><button onclick={() => invoke('open_data_location', { location: 'screenshots', path: settings?.screenshotDirectory ?? defaultScreenshotDirectory }).catch((error) => status = String(error))}>Open</button><button onclick={chooseScreenshotFolder}>Choose</button>{#if settings.screenshotDirectory}<button onclick={() => { if (settings) { settings.screenshotDirectory = undefined; void save(); } }}>Reset</button>{/if}</div>{/if}
+        {:else}<p class="settings-help">Automatic screenshots are not available in the first Linux beta. OBS achievement clips remain available.</p>{/if}
       </div>
       <div class="settings-group">
         <h3>Achievement clips</h3>
@@ -1245,11 +1254,11 @@
         <p class="settings-help">Optional alternative to the public Steam Community page. Leave this blank when the selected profile is public.</p>
         <label class="field"><span>Web API key</span><input type="password" bind:value={settings.steamApiKey} onchange={save} autocomplete="off" placeholder="Optional" /></label>
       </div>{/if}
-      <div class="settings-group">
+      {#if capabilities.os === 'windows'}<div class="settings-group">
         <h3>Official GOG Galaxy</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.gogGalaxyEnabled} onchange={save} /> Import achievements from GOG Galaxy's local database</label>
         <p class="settings-help">Galaxy accounts and tokens stay inside GOG Galaxy. Achievement Watcher reads only the local gameplay database.</p>
-      </div>
+      </div>{/if}
       <div class="settings-group">
         <h3>Emulators and compatibility sources</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.steamEmulatorEnabled} onchange={save} /> Steam emulator saves</label>
@@ -1264,7 +1273,7 @@
       <div class="settings-group">
         <h3>Unlock action</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.customActionEnabled} onchange={save} /> Run a program after an achievement unlocks</label>
-        {#if settings.customActionEnabled}<div class="folder-setting"><span>Program</span><code>{settings.customActionExecutable || 'Not selected'}</code><button onclick={chooseCustomAction}>Choose</button></div><div class="folder-setting"><span>Working folder</span><code>{settings.customActionWorkingDirectory || 'Program folder'}</code><button onclick={chooseCustomActionDirectory}>Choose</button>{#if settings.customActionWorkingDirectory}<button onclick={() => { if (settings) { settings.customActionWorkingDirectory = undefined; void save(); } }}>Reset</button>{/if}</div><label class="field"><span>Arguments</span><input bind:value={settings.customActionArguments} onchange={save} placeholder={'{game_id} {achievement_id}'} /></label><label class="check"><input type="checkbox" bind:checked={settings.customActionHideWindow} onchange={save} /> Hide the program window</label><p class="settings-help">Available placeholders: {`{game_id}`}, {`{achievement_id}`}, {`{name}`}, and {`{source}`}.</p>{/if}
+        {#if settings.customActionEnabled}<div class="folder-setting"><span>Program</span><code>{settings.customActionExecutable || 'Not selected'}</code><button onclick={chooseCustomAction}>Choose</button></div><div class="folder-setting"><span>Working folder</span><code>{settings.customActionWorkingDirectory || 'Program folder'}</code><button onclick={chooseCustomActionDirectory}>Choose</button>{#if settings.customActionWorkingDirectory}<button onclick={() => { if (settings) { settings.customActionWorkingDirectory = undefined; void save(); } }}>Reset</button>{/if}</div><label class="field"><span>Arguments</span><input bind:value={settings.customActionArguments} onchange={save} placeholder={'{game_id} {achievement_id}'} /></label>{#if capabilities.os === 'windows'}<label class="check"><input type="checkbox" bind:checked={settings.customActionHideWindow} onchange={save} /> Hide the program window</label>{/if}<p class="settings-help">Available placeholders: {`{game_id}`}, {`{achievement_id}`}, {`{name}`}, and {`{source}`}.</p>{/if}
       </div>
       <div class="settings-group">
         <h3>WebSocket transport</h3>
@@ -1282,10 +1291,10 @@
         <div class="field"><span>Achievement notification</span><button onclick={testNotification}>Run test</button></div>
         <div class="field"><span>Progress notification</span><button onclick={() => testNotificationKind('test_progress_notification', 'Progress')}>Run test</button></div>
         <div class="field"><span>Playtime notification</span><button onclick={() => testNotificationKind('test_playtime_notification', 'Playtime')}>Run test</button></div>
-        <div class="field"><span>Windows notification controls</span><button onclick={() => invoke('open_windows_settings', { page: 'focus_assist' }).catch((error) => status = String(error))}>Focus Assist</button><button onclick={() => invoke('open_windows_settings', { page: 'notifications' }).catch((error) => status = String(error))}>Notifications &amp; actions</button></div>
-        <p class="settings-help">Fullscreen Focus Assist rules can suppress native Windows notifications. Custom desktop popups and the optional Game Bar companion use separate delivery paths.</p>
+        {#if capabilities.os === 'windows'}<div class="field"><span>Windows notification controls</span><button onclick={() => invoke('open_windows_settings', { page: 'focus_assist' }).catch((error) => status = String(error))}>Focus Assist</button><button onclick={() => invoke('open_windows_settings', { page: 'notifications' }).catch((error) => status = String(error))}>Notifications &amp; actions</button></div>
+        <p class="settings-help">Fullscreen Focus Assist rules can suppress native Windows notifications. Custom desktop popups and the optional Game Bar companion use separate delivery paths.</p>{/if}
         <div class="field"><span>Scan all sources</span><button onclick={() => scan(false)} disabled={scanning}>Run scan</button></div>
-        {#if settings.gameBarEnabled}<div class="field"><span>Xbox Game Bar</span><button onclick={() => invoke('test_game_bar', { settings }).then(() => status = 'Game Bar acknowledged the test').catch((error) => status = `Game Bar test failed: ${String(error)}`)}>Run test</button></div>{/if}
+        {#if capabilities.gameBar && settings.gameBarEnabled}<div class="field"><span>Xbox Game Bar</span><button onclick={() => invoke('test_game_bar', { settings }).then(() => status = 'Game Bar acknowledged the test').catch((error) => status = `Game Bar test failed: ${String(error)}`)}>Run test</button></div>{/if}
         {#if settings.obsReplayEnabled}<div class="field"><span>Achievement clips</span><button onclick={() => invoke('test_obs', { settings }).then(() => status = 'Test clip saved').catch((error) => status = `Clip test failed: ${String(error)}`)}>Run test</button></div>{/if}
         <div class="field"><span>Runtime status</span><button onclick={loadDiagnostics}>Refresh</button></div>
         {#if diagnosticData}<div class="diagnostic-grid"><span>Version</span><strong>{diagnosticData.appVersion}</strong><span>Games</span><strong>{diagnosticData.gameCount}</strong><span>Achievement records</span><strong>{diagnosticData.observationCount}</strong><span>Enabled folders</span><strong>{diagnosticData.enabledSourceCount}</strong><span>Missing folders</span><strong class:warning={diagnosticData.missingSourceCount > 0}>{diagnosticData.missingSourceCount}</strong><span>Pending notifications</span><strong>{diagnosticData.pendingNotifications}</strong><span>Failed notifications</span><strong class:warning={diagnosticData.failedNotifications > 0}>{diagnosticData.failedNotifications}</strong></div>{#if diagnosticData.watchers.length}<div class="diagnostic multi"><span>Watcher health</span><div class="diagnostic-values">{#each diagnosticData.watchers as watcher}<code class:warning={Boolean(watcher.lastError)}>{watcher.name}: {watcher.enabled ? (watcher.lastError ? watcher.lastError : 'running') : 'not needed'} · checked {new Date(watcher.lastHeartbeatAt * 1000).toLocaleTimeString()}</code>{/each}</div></div>{/if}{#if diagnosticData.failedNotifications > 0}<div class="field"><span>Failed notification queue</span><button onclick={() => recoverFailedNotifications(false)}>Retry now</button><button onclick={(event) => requestConfirmation('Dismiss failed notifications?', 'The queued events will not be retried again.', 'Dismiss events', () => recoverFailedNotifications(true))}>Dismiss</button></div>{/if}{#if diagnosticData.recentErrors.length}<div class="diagnostic multi"><span>Recent delivery errors</span><div class="diagnostic-values">{#each diagnosticData.recentErrors as message}<code>{message}</code>{/each}</div></div>{/if}<div class="diagnostic"><span>Notification log</span><code>{diagnosticData.notificationLog}</code><button onclick={() => invoke('open_data_location', { location: 'notification_log', path: null }).catch((error) => status = String(error))}>Open</button></div>{/if}
@@ -1299,7 +1308,7 @@
   {/if}
 </main>
 {#if availableUpdate}
-  <aside class="update-banner" aria-live="polite"><i class="fas fa-download"></i><div><strong>Achievement Watcher {availableUpdate.version} is available</strong><span>{availableUpdate.installerName}</span></div><button onclick={() => invoke('open_release_page', { url: availableUpdate!.releaseUrl })}>Release notes</button><button onclick={skipUpdate}>Skip</button><button class="primary" disabled={installingUpdate} onclick={installAvailableUpdate}>{installingUpdate ? 'Downloading…' : 'Install update'}</button></aside>
+  <aside class="update-banner" aria-live="polite"><i class="fas fa-download"></i><div><strong>Achievement Watcher {availableUpdate.version} is available</strong><span>{availableUpdate.installerName}</span></div><button onclick={() => invoke('open_release_page', { url: availableUpdate!.releaseUrl })}>Release notes</button><button onclick={skipUpdate}>Skip</button>{#if capabilities.automaticUpdateInstall}<button class="primary" disabled={installingUpdate} onclick={installAvailableUpdate}>{installingUpdate ? 'Downloading…' : 'Install update'}</button>{:else}<button class="primary" onclick={() => invoke('open_release_page', { url: availableUpdate!.releaseUrl })}>Open download page</button>{/if}</aside>
 {/if}
 {#if avatarMenu && settings}
   <div bind:this={avatarMenuElement} class="context-menu" style={`left:${avatarMenu.x}px;top:${avatarMenu.y}px`} role="menu" tabindex="-1" onkeydown={(event) => handleMenuKeydown(event, avatarMenuElement, () => closeAvatarMenu(true))} oncontextmenu={(event) => event.preventDefault()}>
