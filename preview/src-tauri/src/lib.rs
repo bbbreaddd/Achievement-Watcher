@@ -214,7 +214,9 @@ async fn install_decky_companion(app: AppHandle) -> CommandResult<()> {
                 .map_err(lock_error)?
                 .save_settings(&settings)
                 .map_err(error)?;
-            state.websocket.configure(true, "127.0.0.1", 8082)
+            state
+                .websocket
+                .configure(true, "127.0.0.1", 8082, &state.data_dir)
         })
         .await
         .map_err(error)?
@@ -974,6 +976,7 @@ fn save_settings_sync(
             settings.websocket_enabled,
             &settings.websocket_host,
             settings.websocket_port,
+            &state.data_dir,
         )?;
         configure_watcher(app, state, &settings)?;
         state
@@ -1006,6 +1009,7 @@ fn save_settings_sync(
             previous.websocket_enabled,
             &previous.websocket_host,
             previous.websocket_port,
+            &state.data_dir,
         ) {
             rollback_errors.push(format!("WebSocket listener: {rollback_error}"));
         }
@@ -4856,6 +4860,7 @@ pub fn run() {
                 startup_settings.websocket_enabled,
                 &startup_settings.websocket_host,
                 startup_settings.websocket_port,
+                &state.data_dir,
             ) {
                 notification_log(&state, &format!("WebSocket startup: {message}"));
             }

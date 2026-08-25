@@ -85,18 +85,48 @@ function FaTrophy (props) {
 const APP_ROUTE = '/library/app/:appid';
 function GamePageProbe() {
     const appId = window.location.pathname.match(/\/library\/app\/(\d+)/)?.[1];
+    const [connected, setConnected] = SP_REACT.useState(false);
+    const [game, setGame] = SP_REACT.useState();
+    const [error, setError] = SP_REACT.useState();
+    SP_REACT.useEffect(() => {
+        if (!appId)
+            return;
+        const requestId = `game-${appId}-${Date.now()}`;
+        const socket = new WebSocket('ws://127.0.0.1:8082');
+        socket.onopen = () => {
+            setConnected(true);
+            socket.send(JSON.stringify({ protocolVersion: 1, type: 'getGame', requestId, appId }));
+        };
+        socket.onmessage = ({ data }) => {
+            try {
+                const response = JSON.parse(String(data));
+                if (response.type === 'game' && response.requestId === requestId) {
+                    setError(typeof response.error === 'string' ? response.error : undefined);
+                    setGame(response.game);
+                }
+            }
+            catch {
+                // Unlock broadcasts use a different message shape.
+            }
+        };
+        socket.onclose = () => setConnected(false);
+        return () => socket.close();
+    }, [appId]);
+    const percent = game?.total ? Math.round((game.unlocked / game.total) * 100) : 0;
+    const recent = game?.achievements.filter((achievement) => achievement.achieved).slice(0, 3) ?? [];
     return (SP_JSX.jsxs("aside", { style: {
             position: 'fixed',
             right: 24,
             bottom: 24,
             zIndex: 1000,
+            width: 340,
             padding: '12px 16px',
             background: '#17212b',
             borderLeft: '4px solid #66c0f4',
             color: '#f5f5f5',
             boxShadow: '0 4px 16px rgba(0, 0, 0, 0.35)',
             pointerEvents: 'none',
-        }, children: [SP_JSX.jsx("div", { style: { fontSize: 16, fontWeight: 600 }, children: "Achievement Watcher" }), SP_JSX.jsxs("div", { style: { marginTop: 3, color: '#acb2b8', fontSize: 12 }, children: ["Game page connection working", appId ? ` · App ${appId}` : ''] })] }));
+        }, children: [SP_JSX.jsx("div", { style: { fontSize: 16, fontWeight: 600 }, children: "Achievement Watcher" }), !connected ? (SP_JSX.jsx("div", { style: { marginTop: 3, color: '#acb2b8', fontSize: 12 }, children: "Open Achievement Watcher to see achievements" })) : error ? (SP_JSX.jsx("div", { style: { marginTop: 3, color: '#e5a26f', fontSize: 12 }, children: error })) : game === undefined ? (SP_JSX.jsx("div", { style: { marginTop: 3, color: '#acb2b8', fontSize: 12 }, children: "Loading achievements\u2026" })) : game === null ? (SP_JSX.jsxs("div", { style: { marginTop: 3, color: '#acb2b8', fontSize: 12 }, children: ["No achievements found for Steam app ", appId] })) : (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsxs("div", { style: { display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 13 }, children: [SP_JSX.jsx("span", { children: game.name }), SP_JSX.jsxs("span", { style: { color: '#acb2b8' }, children: [game.unlocked, "/", game.total] })] }), SP_JSX.jsx("div", { style: { height: 4, marginTop: 7, background: '#3d4852' }, children: SP_JSX.jsx("div", { style: { width: `${percent}%`, height: '100%', background: '#66c0f4' } }) }), recent.map((achievement) => (SP_JSX.jsxs("div", { style: { marginTop: 8, fontSize: 12 }, children: [SP_JSX.jsx("div", { children: achievement.displayName ?? achievement.achievementId }), achievement.description && (SP_JSX.jsx("div", { style: { marginTop: 1, color: '#8f98a0' }, children: achievement.description }))] }, achievement.achievementId)))] }))] }));
 }
 function patchAppPage() {
     const routePatch = routerHook.addPatch(APP_ROUTE, (props) => ({

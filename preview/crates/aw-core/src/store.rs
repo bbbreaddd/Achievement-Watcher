@@ -548,7 +548,7 @@ impl Store {
 
     pub fn enrich_observations(&self, observations: &mut [AchievementObservation]) -> Result<()> {
         let mut statement = self.connection.prepare(
-            "SELECT MAX(display_name),MAX(description),MAX(icon),MAX(locked_icon),MAX(hidden),MAX(global_percent_hundredths) FROM achievement_metadata
+            "SELECT MAX(display_name),MAX(description),MAX(icon),MAX(locked_icon),COALESCE(MAX(hidden),0),MAX(global_percent_hundredths) FROM achievement_metadata
              WHERE game_id=?1 AND achievement_id=?2 COLLATE NOCASE",
         )?;
         for observation in observations {
@@ -629,7 +629,7 @@ impl Store {
 
     pub fn catalog_achievements(&self, game_id: &str) -> Result<Vec<AchievementObservation>> {
         let mut statement = self.connection.prepare(
-            "SELECT MIN(achievement_id),MAX(display_name),MAX(description),COALESCE(MAX(locked_icon),MAX(icon)),MAX(hidden),MAX(global_percent_hundredths)
+            "SELECT MIN(achievement_id),MAX(display_name),MAX(description),COALESCE(MAX(locked_icon),MAX(icon)),COALESCE(MAX(hidden),0),MAX(global_percent_hundredths)
              FROM achievement_metadata WHERE game_id=?1 GROUP BY achievement_id COLLATE NOCASE
              ORDER BY MAX(display_name) COLLATE NOCASE,MIN(achievement_id)",
         )?;
