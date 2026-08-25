@@ -2,6 +2,7 @@ import { definePlugin } from '@decky/api';
 import { PanelSection, PanelSectionRow, staticClasses } from '@decky/ui';
 import { useEffect, useState } from 'react';
 import { FaTrophy } from 'react-icons/fa';
+import { patchAppPage } from './appPagePatch';
 
 interface UnlockEvent {
   game: string;
@@ -58,9 +59,13 @@ function Content() {
   );
 }
 
-export default definePlugin(() => ({
-  name: 'Achievement Watcher',
-  titleView: <div className={staticClasses.Title}>Achievement Watcher</div>,
-  content: <Content />,
-  icon: <FaTrophy />,
-}));
+export default definePlugin(() => {
+  const removeAppPagePatch = patchAppPage();
+  return {
+    name: 'Achievement Watcher',
+    titleView: <div className={staticClasses.Title}>Achievement Watcher</div>,
+    content: <Content />,
+    icon: <FaTrophy />,
+    onDismount: removeAppPagePatch,
+  };
+});

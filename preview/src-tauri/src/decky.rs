@@ -6,7 +6,7 @@ use std::{
 };
 
 const PLUGIN_DIRECTORY: &str = "AchievementWatcher";
-const VERSION: &str = "0.1.0";
+const VERSION: &str = "0.1.1";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
