@@ -27,6 +27,7 @@ Thumbs.db
 dist/
 !preview/decky-companion/dist/
 !preview/decky-companion/dist/index.js
+preview/decky-companion/dist/*.map
 build/
 preview/target/
 preview/dist/
