@@ -14,13 +14,19 @@ These are targets until measured on packaged Windows builds. To measure a closed
 
 ## Development
 
-Requirements: current stable Rust, Node.js 22, npm, and the Tauri 2 Windows prerequisites.
+Requirements: current stable Rust, Node.js 22, npm, and the Tauri 2 prerequisites for your operating system.
 
 ```powershell
 npm ci
 cargo test -p aw-core
 npm run build
 npm run tauri build
+```
+
+On Debian or Ubuntu, install the Linux build dependencies first:
+
+```bash
+sudo apt-get install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 ```
 
 The first scan establishes a quiet baseline so existing achievements do not generate a notification storm. Supported preview inputs include common Steam-emulator JSON/INI formats, GreenLuma-configured directories, SSE binary files, and RPCS3 `TROPUSR.DAT` files. Notifications are persisted before delivery and retry through a native Windows fallback if the styled renderer does not acknowledge startup.
@@ -47,6 +53,24 @@ When the repository is opened through a mapped Linux/Samba drive, the Windows he
 The main application installer is written to `%LOCALAPPDATA%\AchievementWatcherBuild\target\release\bundle\nsis`. CI publishes that NSIS installer and the separately sideloaded Game Bar package together in the `achievement-watcher-preview-windows` workflow artifact. Other generated files remain under `%LOCALAPPDATA%\AchievementWatcherBuild`. If `sccache` is installed, the script uses it automatically. To discard only this generated cache, run `./scripts/clean-windows-cache.ps1`.
 
 For frontend-only work, use `npm run dev`. For repeated frontend tests, use `npm run test:watch`. Reserve the optimized Tauri/NSIS build for installable checkpoints because release LTO and stripping trade build time for a smaller executable.
+
+### Linux beta
+
+Linux uses the same application, database, and UI as Windows. Steam is discovered from native, legacy, and Flatpak installations, including additional Steam libraries and known achievement sources inside Proton prefixes. Other local sources can be added manually.
+
+```bash
+npm ci
+npm run tauri:dev
+
+# Build both Linux packages
+npm run tauri build -- --bundles appimage,deb
+```
+
+The AppImage is the simplest portable option and does not require installation. Mark it executable before launching it. The Debian package integrates with the desktop application menu. Release builds are produced on Ubuntu 22.04 for compatibility with a wider range of distributions.
+
+Wayland compositors restrict applications from placing windows above fullscreen games. Achievement Watcher therefore uses native desktop notifications while a Steam game is running on Wayland and retains custom popups on the desktop. X11 sessions continue to support custom popups while gaming. OBS replay-buffer clips work through OBS WebSocket on both platforms; automatic screenshots, controller rumble, Xbox Game Bar, and GOG Galaxy import are not included in the first Linux beta.
+
+On Steam Deck, use Desktop Mode to configure and run the AppImage. If it needs to start automatically, enable **Start with the computer** in Achievement Watcher; this creates a user-level XDG autostart entry. Updates on Linux open the GitHub release page so the AppImage or Debian package can be replaced explicitly.
 
 ## Optional Xbox Game Bar companion
 

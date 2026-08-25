@@ -335,7 +335,7 @@ fn latest_preview_update() -> CommandResult<Option<DownloadableUpdate>> {
         .timeout(Duration::from_secs(8))
         .user_agent("Achievement-Watcher/0.1")
         .build()
-        .get("https://api.github.com/repos/darktakayanagi/Achievement-Watcher/releases?per_page=20")
+        .get("https://api.github.com/repos/bbbreaddd/Achievement-Watcher/releases?per_page=20")
         .call()
         .map_err(error)?
         .into_json::<Vec<GithubRelease>>()
@@ -354,18 +354,29 @@ fn latest_preview_update() -> CommandResult<Option<DownloadableUpdate>> {
             continue;
         }
         let Some(installer) = release.assets.iter().find(|asset| {
-            asset.name.to_ascii_lowercase().ends_with("-setup.exe")
-                || asset.name.to_ascii_lowercase().ends_with(".setup.exe")
+            let name = asset.name.to_ascii_lowercase();
+            if cfg!(windows) {
+                name.ends_with("-setup.exe") || name.ends_with(".setup.exe")
+            } else if cfg!(target_os = "linux") {
+                name.ends_with(".appimage")
+            } else {
+                false
+            }
         }) else {
             continue;
         };
-        let checksum_name = format!("{}.sha256", installer.name);
-        let Some(checksum) = release
-            .assets
-            .iter()
-            .find(|asset| asset.name == checksum_name)
-        else {
-            continue;
+        let checksum_url = if cfg!(windows) {
+            let checksum_name = format!("{}.sha256", installer.name);
+            let Some(checksum) = release
+                .assets
+                .iter()
+                .find(|asset| asset.name == checksum_name)
+            else {
+                continue;
+            };
+            checksum.browser_download_url.clone()
+        } else {
+            String::new()
         };
         return Ok(Some(DownloadableUpdate {
             info: UpdateInfo {
@@ -374,7 +385,7 @@ fn latest_preview_update() -> CommandResult<Option<DownloadableUpdate>> {
                 installer_name: installer.name.clone(),
             },
             installer_url: installer.browser_download_url.clone(),
-            checksum_url: checksum.browser_download_url.clone(),
+            checksum_url,
         }));
     }
     Ok(None)
@@ -421,6 +432,9 @@ async fn install_update(app: AppHandle) -> CommandResult<()> {
 
 fn install_update_sync(app: &AppHandle) -> CommandResult<()> {
     use std::io::Read;
+    if !platform::capabilities().automatic_update_install {
+        return Err("Automatic update installation is available only on Windows".into());
+    }
     let update = latest_preview_update()?
         .ok_or_else(|| "No newer preview release is available".to_string())?;
     let agent = ureq::AgentBuilder::new()
@@ -478,7 +492,7 @@ fn install_update_sync(app: &AppHandle) -> CommandResult<()> {
 
 #[tauri::command]
 fn open_release_page(url: String) -> CommandResult<()> {
-    if !url.starts_with("https://github.com/darktakayanagi/Achievement-Watcher/releases/") {
+    if !url.starts_with("https://github.com/bbbreaddd/Achievement-Watcher/releases/") {
         return Err("Unsupported release URL".into());
     }
     platform::open(url)
@@ -501,7 +515,7 @@ fn open_game_website(game_id: String, website: String) -> CommandResult<()> {
 #[tauri::command]
 fn open_project_page(project: String) -> CommandResult<()> {
     let url = match project.as_str() {
-        "fork" => "https://github.com/darktakayanagi/Achievement-Watcher",
+        "fork" => "https://github.com/bbbreaddd/Achievement-Watcher",
         "original" => "https://github.com/xan105/Achievement-Watcher",
         "wiki" => "https://github.com/xan105/Achievement-Watcher/wiki",
         _ => return Err("Unsupported project page".into()),
