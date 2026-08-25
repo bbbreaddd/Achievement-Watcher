@@ -1169,6 +1169,7 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
         }
     }
     let mut result: Vec<_> = games.into_values().collect();
+    result.retain(|game| !steam::is_steam_runtime(&game.name));
     if settings.hide_zero {
         result.retain(|game| game.unlocked > 0 || !game.tracked);
     }

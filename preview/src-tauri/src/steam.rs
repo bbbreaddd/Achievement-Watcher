@@ -129,13 +129,22 @@ pub fn installed_games(location: &SourceLocation) -> Vec<(String, String)> {
                         })
                     })
                     .unwrap_or_else(|| id.to_owned());
-                games.push((id.to_owned(), name));
+                if !is_steam_runtime(&name) {
+                    games.push((id.to_owned(), name));
+                }
             }
         }
     }
     games.sort_by(|left, right| left.0.cmp(&right.0));
     games.dedup_by(|left, right| left.0 == right.0);
     games
+}
+
+pub fn is_steam_runtime(name: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    name.starts_with("proton ")
+        || name.starts_with("steam linux runtime")
+        || name == "steamworks common redistributables"
 }
 
 pub fn steamapps_directories(location: &SourceLocation) -> Vec<PathBuf> {
@@ -272,6 +281,11 @@ mod tests {
         std::fs::write(
             steamapps.join("appmanifest_400.acf"),
             "\"AppState\"\n{\n\t\"appid\" \"400\"\n\t\"name\" \"Portal\"\n}",
+        )
+        .unwrap();
+        std::fs::write(
+            steamapps.join("appmanifest_1493710.acf"),
+            "\"AppState\"\n{\n\t\"appid\" \"1493710\"\n\t\"name\" \"Proton Experimental\"\n}",
         )
         .unwrap();
         let location = SourceLocation {
