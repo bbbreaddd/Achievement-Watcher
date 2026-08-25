@@ -9,11 +9,15 @@ pub struct SteamAccount {
     pub steam_id: String,
     pub name: String,
     pub most_recent: bool,
+    pub local_user_match: bool,
     pub avatar_path: Option<PathBuf>,
 }
 
 pub fn accounts(locations: &[SourceLocation]) -> Vec<SteamAccount> {
     let mut accounts = Vec::new();
+    let local_user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default();
     for location in locations
         .iter()
         .filter(|location| location.kind == aw_core::SourceKind::Steam)
@@ -53,13 +57,22 @@ pub fn accounts(locations: &[SourceLocation]) -> Vec<SteamAccount> {
                     steam_id,
                     name: String::new(),
                     most_recent: false,
+                    local_user_match: false,
                 });
             } else if values.len() >= 2
                 && let Some(account) = current.as_mut()
             {
                 match values[0].as_str() {
-                    "PersonaName" => account.name = values[1].clone(),
-                    "AccountName" if account.name.is_empty() => account.name = values[1].clone(),
+                    "PersonaName" => {
+                        account.name = values[1].clone();
+                        account.local_user_match |= values[1].eq_ignore_ascii_case(&local_user);
+                    }
+                    "AccountName" => {
+                        account.local_user_match |= values[1].eq_ignore_ascii_case(&local_user);
+                        if account.name.is_empty() {
+                            account.name = values[1].clone();
+                        }
+                    }
                     "MostRecent" => account.most_recent = values[1] == "1",
                     _ => {}
                 }
@@ -69,7 +82,7 @@ pub fn accounts(locations: &[SourceLocation]) -> Vec<SteamAccount> {
             accounts.push(account);
         }
     }
-    accounts.sort_by_key(|account| !account.most_recent);
+    accounts.sort_by_key(|account| (!account.most_recent, !account.local_user_match));
     accounts.dedup_by(|left, right| left.steam_id == right.steam_id);
     accounts
 }
