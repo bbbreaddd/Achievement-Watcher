@@ -12,7 +12,6 @@ $mediaSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\media')).Path
 $localeSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\locale')).Path
 $installerSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\build')).Path
 $presetSourceRoot = (Resolve-Path (Join-Path $sourceRoot '..\app\presets')).Path
-$binarySourceRoot = Join-Path $sourceRoot 'src-tauri\binaries'
 $stageRoot = Join-Path $buildRoot 'source'
 $assetStageRoot = Join-Path $buildRoot 'app\Source'
 $resourceStageRoot = Join-Path $buildRoot 'app\resources'
@@ -24,10 +23,7 @@ $env:CARGO_TARGET_DIR = Join-Path $buildRoot 'target'
 New-Item -ItemType Directory -Force -Path $env:CARGO_TARGET_DIR,$stageRoot,$assetStageRoot,$resourceStageRoot,$mediaStageRoot,$localeStageRoot,$installerStageRoot,$presetStageRoot | Out-Null
 
 function Sync-Source {
-  # Build-SteamHelper writes the target-suffixed sidecar into the staged
-  # binaries directory. Exclude that directory so /MIR cannot delete the
-  # generated Windows binary while Tauri is starting.
-  & robocopy $sourceRoot $stageRoot /MIR /XD node_modules target dist bin obj $binarySourceRoot /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
+  & robocopy $sourceRoot $stageRoot /MIR /XD node_modules target dist bin obj /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "Source staging failed with robocopy exit code $LASTEXITCODE" }
   & robocopy $assetSourceRoot $assetStageRoot *.svg /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "Source icon staging failed with robocopy exit code $LASTEXITCODE" }
@@ -41,39 +37,6 @@ function Sync-Source {
   if ($LASTEXITCODE -ge 8) { throw "Installer artwork staging failed with robocopy exit code $LASTEXITCODE" }
   & robocopy $presetSourceRoot $presetStageRoot /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "Notification preset staging failed with robocopy exit code $LASTEXITCODE" }
-}
-
-function Build-SteamHelper {
-  param([switch]$ReleaseBuild)
-  $cargoArgs = @('build', '-p', 'achievement-watcher-steam-helper')
-  $profile = 'debug'
-  if ($ReleaseBuild) {
-    $cargoArgs += '--release'
-    $profile = 'release'
-  }
-  & cargo @cargoArgs
-  if ($LASTEXITCODE -ne 0) { throw 'Steam helper build failed' }
-  $steamRuntime = Get-ChildItem (Join-Path $env:CARGO_TARGET_DIR "$profile\build") -Filter 'steam_api64.dll' -File -Recurse |
-    Sort-Object LastWriteTimeUtc -Descending |
-    Select-Object -First 1
-  if (-not $steamRuntime) { throw 'The Steam helper runtime steam_api64.dll was not produced' }
-  $helperPath = Join-Path $env:CARGO_TARGET_DIR "$profile\achievement-watcher-steam-helper.exe"
-  foreach ($windowsBinary in @($helperPath, $steamRuntime.FullName)) {
-    $stream = [IO.File]::OpenRead($windowsBinary)
-    try { $first = $stream.ReadByte(); $second = $stream.ReadByte() }
-    finally { $stream.Dispose() }
-    if ($first -ne 0x4d -or $second -ne 0x5a) {
-      throw "Expected a Windows PE binary but found an invalid file: $windowsBinary"
-    }
-  }
-  Copy-Item $steamRuntime.FullName (Join-Path $env:CARGO_TARGET_DIR "$profile\steam_api64.dll") -Force
-  $targetTriple = (& rustc --print host-tuple).Trim()
-  if (-not $targetTriple) { throw 'Could not determine the Rust target triple' }
-  $bundleDirectory = Join-Path $stageRoot 'src-tauri\binaries'
-  New-Item -ItemType Directory -Force -Path $bundleDirectory | Out-Null
-  Copy-Item $helperPath `
-    (Join-Path $bundleDirectory "achievement-watcher-steam-helper-$targetTriple.exe") -Force
-  Copy-Item $steamRuntime.FullName (Join-Path $bundleDirectory 'steam_api64.dll') -Force
 }
 
 Sync-Source
@@ -100,13 +63,11 @@ try {
 
   if ($CheckOnly) {
     npm run check
-    Build-SteamHelper
     & cargo check -p achievement-watcher-preview
     exit $LASTEXITCODE
   }
 
   if ($Release) {
-    Build-SteamHelper -ReleaseBuild
     npm run tauri build
     Write-Host "Installer output: $env:CARGO_TARGET_DIR\release\bundle\nsis"
     exit $LASTEXITCODE
@@ -120,12 +81,10 @@ try {
     throw "The development copy of Achievement Watcher is already running (PID: $processIds). Close it or run Stop-Process -Id $processIds, then start this script again."
   }
 
-  Build-SteamHelper
-
-  $syncJob = Start-Job -ArgumentList $sourceRoot,$stageRoot,$assetSourceRoot,$assetStageRoot,$resourceSourceRoot,$resourceStageRoot,$mediaSourceRoot,$mediaStageRoot,$localeSourceRoot,$localeStageRoot,$installerSourceRoot,$installerStageRoot,$presetSourceRoot,$presetStageRoot,$binarySourceRoot -ScriptBlock {
-    param($source, $stage, $assetSource, $assetStage, $resourceSource, $resourceStage, $mediaSource, $mediaStage, $localeSource, $localeStage, $installerSource, $installerStage, $presetSource, $presetStage, $binarySource)
+  $syncJob = Start-Job -ArgumentList $sourceRoot,$stageRoot,$assetSourceRoot,$assetStageRoot,$resourceSourceRoot,$resourceStageRoot,$mediaSourceRoot,$mediaStageRoot,$localeSourceRoot,$localeStageRoot,$installerSourceRoot,$installerStageRoot,$presetSourceRoot,$presetStageRoot -ScriptBlock {
+    param($source, $stage, $assetSource, $assetStage, $resourceSource, $resourceStage, $mediaSource, $mediaStage, $localeSource, $localeStage, $installerSource, $installerStage, $presetSource, $presetStage)
     while ($true) {
-      & robocopy $source $stage /MIR /XD node_modules target dist bin obj $binarySource /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
+      & robocopy $source $stage /MIR /XD node_modules target dist bin obj /XF '*.pdb' /NJH /NJS /NDL /NFL /NP | Out-Null
       & robocopy $assetSource $assetStage *.svg /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
       & robocopy $resourceSource $resourceStage /MIR /NJH /NJS /NDL /NFL /NP | Out-Null
       & robocopy $mediaSource $mediaStage *.wav /MIR /NJH /NJS /NDL /NFL /NP | Out-Null

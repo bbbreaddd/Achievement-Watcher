@@ -1,28 +1,6 @@
-use aw_core::{AchievementObservation, SourceLocation};
-use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SteamSnapshot {
-    app_id: u32,
-    achievements: Vec<SteamAchievement>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SteamAchievement {
-    api_name: String,
-    display_name: String,
-    description: String,
-    #[serde(default)]
-    hidden: bool,
-    achieved: bool,
-    unlock_time: u32,
-}
+use aw_core::SourceLocation;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,7 +102,7 @@ pub fn stats_files(location: &SourceLocation) -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn installed_app_ids(location: &SourceLocation) -> Vec<String> {
+pub fn installed_games(location: &SourceLocation) -> Vec<(String, String)> {
     let Some(steam_root) = location.path.parent().and_then(Path::parent) else {
         return Vec::new();
     };
@@ -138,7 +116,7 @@ pub fn installed_app_ids(location: &SourceLocation) -> Vec<String> {
             }
         }
     }
-    let mut ids = Vec::new();
+    let mut games = Vec::new();
     for directory in steamapps {
         let Ok(entries) = std::fs::read_dir(directory) else {
             continue;
@@ -154,75 +132,30 @@ pub fn installed_app_ids(location: &SourceLocation) -> Vec<String> {
                 continue;
             };
             if id.chars().all(|character| character.is_ascii_digit()) {
-                ids.push(id.to_owned());
+                let name = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|content| {
+                        content.lines().find_map(|line| {
+                            let values = quoted_values(line);
+                            (values.len() >= 2 && values[0].eq_ignore_ascii_case("name"))
+                                .then(|| values[1].clone())
+                        })
+                    })
+                    .unwrap_or_else(|| id.to_owned());
+                games.push((id.to_owned(), name));
             }
         }
     }
-    ids.sort();
-    ids.dedup();
-    ids
+    games.sort_by(|left, right| left.0.cmp(&right.0));
+    games.dedup_by(|left, right| left.0 == right.0);
+    games
 }
 
-pub fn read_client_snapshot(
-    source_id: &str,
-    game_id: &str,
-) -> Result<Vec<AchievementObservation>, String> {
-    let app_id = game_id.parse::<u32>().map_err(|_| "invalid Steam App ID")?;
-    let helper = helper_path()?;
-    let mut command = Command::new(&helper);
-    command.arg(game_id);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-    let output = command
-        .output()
-        .map_err(|error| format!("could not start {}: {error}", helper.display()))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
-    }
-    let snapshot: SteamSnapshot = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("invalid Steam helper response: {error}"))?;
-    if snapshot.app_id != app_id {
-        return Err("Steam helper returned data for the wrong app".into());
-    }
-    Ok(snapshot
-        .achievements
+pub fn installed_app_ids(location: &SourceLocation) -> Vec<String> {
+    installed_games(location)
         .into_iter()
-        .map(|achievement| AchievementObservation {
-            source_id: source_id.to_owned(),
-            origin_source_id: None,
-            game_id: game_id.to_owned(),
-            achievement_id: achievement.api_name,
-            achieved: achievement.achieved,
-            hidden: achievement.hidden,
-            global_percent_hundredths: None,
-            trophy_grade: None,
-            current_progress: 0,
-            max_progress: 0,
-            unlock_time: i64::from(achievement.unlock_time),
-            display_name: Some(achievement.display_name),
-            description: Some(achievement.description),
-            icon: None,
-        })
-        .collect())
-}
-
-fn helper_path() -> Result<PathBuf, String> {
-    let current = std::env::current_exe().map_err(|error| error.to_string())?;
-    let directory = current
-        .parent()
-        .ok_or("application executable has no directory")?;
-    let name = if cfg!(windows) {
-        "achievement-watcher-steam-helper.exe"
-    } else {
-        "achievement-watcher-steam-helper"
-    };
-    let path = directory.join(name);
-    path.exists()
-        .then_some(path)
-        .ok_or_else(|| "Steam helper is not installed beside Achievement Watcher".into())
+        .map(|(game_id, _)| game_id)
+        .collect()
 }
 
 #[cfg(windows)]
@@ -270,5 +203,35 @@ mod tests {
             quoted_values("\t\"PersonaName\"\t\t\"Green\""),
             ["PersonaName", "Green"]
         );
+    }
+
+    #[test]
+    fn reads_installed_game_names_from_manifests() {
+        let root = std::env::temp_dir().join(format!(
+            "achievement-watcher-steam-manifest-{}",
+            std::process::id()
+        ));
+        let stats = root.join("appcache/stats");
+        let steamapps = root.join("steamapps");
+        std::fs::create_dir_all(&stats).unwrap();
+        std::fs::create_dir_all(&steamapps).unwrap();
+        std::fs::write(
+            steamapps.join("appmanifest_400.acf"),
+            "\"AppState\"\n{\n\t\"appid\" \"400\"\n\t\"name\" \"Portal\"\n}",
+        )
+        .unwrap();
+        let location = SourceLocation {
+            id: "steam".into(),
+            kind: aw_core::SourceKind::Steam,
+            path: stats,
+            enabled: true,
+            notify: true,
+        };
+
+        assert_eq!(
+            installed_games(&location),
+            [("400".into(), "Portal".into())]
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

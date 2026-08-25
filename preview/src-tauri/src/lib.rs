@@ -2007,43 +2007,12 @@ fn scan_sources_sync(
                 }
             }
         }
-        // Installed/owned enumeration can contain hundreds of games. Existing
-        // observations are refreshed by the running-game monitor or their
-        // UserGameStats file above, so avoid launching a helper process for
-        // every unchanged title whenever the library is opened.
-        if let Ok(store) = state.store.lock()
-            && let Ok(observations) = store.observations()
-        {
-            scanned_games.extend(
-                observations
-                    .into_iter()
-                    .filter(|observation| observation.source_id == location.id)
-                    .map(|observation| observation.game_id),
-            );
-        }
         if settings.steam_library_mode == "installed" {
-            let detected_accounts = steam::accounts(&settings.source_locations);
-            let account_id = settings
-                .steam_account_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .or_else(|| {
-                    detected_accounts
-                        .first()
-                        .map(|account| account.account_id.as_str())
-                })
-                .unwrap_or_default()
-                .to_owned();
-            for game_id in steam::installed_app_ids(location) {
-                if scanned_games.insert(game_id.clone())
-                    && let Err(message) =
-                        sync_steam_game(&app, &state, location, &account_id, &game_id, true)
-                {
-                    notification_log(
-                        &state,
-                        &format!("Steam installed scan skipped app {game_id}: {message}"),
-                    );
+            for (game_id, name) in steam::installed_games(location) {
+                if let Ok(store) = state.store.lock() {
+                    let _ = store.save_game_metadata(&game_id, &name, None);
                 }
+                scanned_games.insert(game_id);
             }
         } else if settings.steam_library_mode == "owned" {
             let detected_accounts = steam::accounts(&settings.source_locations);
@@ -2063,15 +2032,7 @@ fn scan_sources_sync(
                         if let Ok(store) = state.store.lock() {
                             let _ = store.save_game_metadata(&game_id, &name, icon.as_deref());
                         }
-                        if scanned_games.insert(game_id.clone())
-                            && let Err(message) =
-                                sync_steam_game(&app, &state, location, account_id, &game_id, true)
-                        {
-                            notification_log(
-                                &state,
-                                &format!("Steam owned scan skipped app {game_id}: {message}"),
-                            );
-                        }
+                        scanned_games.insert(game_id);
                     }
                 }
                 Err(message) => notification_log(&state, &format!("Steam owned games: {message}")),
@@ -3554,40 +3515,35 @@ fn sync_steam_game(
         .map_err(lock_error)?
         .load_settings()
         .map_err(error)?;
-    let mut observations = match steam::read_client_snapshot(&location.id, game_id) {
+    if !settings.steam_public_fallback && settings.steam_api_key.trim().is_empty() {
+        return Err(
+            "Steam profile access is disabled; local cache changes cannot be resolved".into(),
+        );
+    }
+    if state
+        .steam_fallback_blocked_until
+        .lock()
+        .map_err(lock_error)?
+        .is_some_and(|until| until > Instant::now())
+    {
+        return Err("Steam profile access is temporarily paused after rate limiting".into());
+    }
+    let mut observations = match read_steam_fallback(
+        &location.id,
+        account_id,
+        game_id,
+        settings.steam_api_key.trim(),
+    ) {
         Ok(observations) => observations,
-        Err(client_error) if settings.steam_public_fallback => {
-            if state
-                .steam_fallback_blocked_until
-                .lock()
-                .map_err(lock_error)?
-                .is_some_and(|until| until > Instant::now())
-            {
-                return Err(format!(
-                    "Steam client: {client_error}; Steam public fallback is temporarily paused"
-                ));
+        Err(profile_error) => {
+            if profile_error.contains("429") {
+                *state
+                    .steam_fallback_blocked_until
+                    .lock()
+                    .map_err(lock_error)? = Some(Instant::now() + Duration::from_secs(300));
             }
-            match read_steam_fallback(
-                &location.id,
-                account_id,
-                game_id,
-                settings.steam_api_key.trim(),
-            ) {
-                Ok(observations) => observations,
-                Err(fallback_error) => {
-                    if fallback_error.contains("429") {
-                        *state
-                            .steam_fallback_blocked_until
-                            .lock()
-                            .map_err(lock_error)? = Some(Instant::now() + Duration::from_secs(300));
-                    }
-                    return Err(format!(
-                        "Steam client: {client_error}; Steam fallback: {fallback_error}"
-                    ));
-                }
-            }
+            return Err(format!("Steam profile: {profile_error}"));
         }
-        Err(client_error) => return Err(client_error),
     };
     let events = {
         let mut store = state.store.lock().map_err(lock_error)?;
@@ -3930,33 +3886,7 @@ fn start_steam_monitor(app: AppHandle) {
                     last_activity_tick = std::time::Instant::now();
                 }
             }
-            let Some(location) = settings.source_locations.iter().find(|location| {
-                location.enabled
-                    && source_kind_enabled(&settings, location.kind)
-                    && location.kind == aw_core::SourceKind::Steam
-            }) else {
-                watcher_heartbeat(&state, "Steam monitor", false, false, Ok(()));
-                continue;
-            };
-            let detected_account = steam::stats_files(location)
-                .into_iter()
-                .find_map(|path| steam::stats_file_identity(&path).map(|(account, _)| account));
-            let account_id = settings
-                .steam_account_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .or(detected_account.as_deref())
-                .unwrap_or_default();
-            let baseline = app_changed;
-            let result = sync_steam_game(&app, &state, location, account_id, game_id, baseline);
-            watcher_heartbeat(&state, "Steam monitor", true, true, result.clone());
-            match result {
-                Ok(()) => {
-                    let _ = dispatch_pending(&app, &state);
-                    let _ = app.emit("library-changed", ());
-                }
-                Err(message) => notification_log(&state, &format!("Steam monitor: {message}")),
-            }
+            watcher_heartbeat(&state, "Steam monitor", true, true, Ok(()));
         }
     });
 }
