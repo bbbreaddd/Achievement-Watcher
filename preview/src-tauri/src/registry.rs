@@ -181,7 +181,53 @@ pub fn configure_startup(enabled: bool) -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+pub fn configure_startup(enabled: bool) -> Result<(), String> {
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .ok_or_else(|| "The Linux configuration directory could not be determined".to_string())?;
+    let directory = config.join("autostart");
+    let path = directory.join("achievement-watcher.desktop");
+    if !enabled {
+        return match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        };
+    }
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    std::fs::write(path, linux_desktop_entry(&executable)).map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_desktop_entry(executable: &std::path::Path) -> String {
+    let escaped = executable
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`")
+        .replace('$', "\\$");
+    format!(
+        "[Desktop Entry]\nType=Application\nName=Achievement Watcher\nExec=\"{escaped}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n"
+    )
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 pub fn configure_startup(_enabled: bool) -> Result<(), String> {
-    Ok(())
+    Err("Starting automatically is unavailable on the current platform".into())
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn quotes_linux_autostart_executables() {
+        let entry = super::linux_desktop_entry(std::path::Path::new(
+            "/home/player/Achievement Watcher/$preview",
+        ));
+        assert!(entry.contains("Exec=\"/home/player/Achievement Watcher/\\$preview\""));
+        assert!(entry.contains("Terminal=false"));
+    }
 }
