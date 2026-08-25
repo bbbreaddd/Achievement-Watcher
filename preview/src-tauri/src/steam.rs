@@ -190,7 +190,7 @@ fn parse_shortcuts(content: &[u8]) -> Vec<(String, String)> {
         let fields = &content[id_position + 4..next_entry];
         if let Some(name_position) = fields
             .windows(APP_NAME.len())
-            .position(|window| window == APP_NAME)
+            .position(|window| window.eq_ignore_ascii_case(APP_NAME))
         {
             let name = &fields[name_position + APP_NAME.len()..];
             let name = &name[..name
@@ -376,7 +376,7 @@ mod tests {
         let mut content = b"shortcuts\0\0".to_vec();
         content.extend_from_slice(b"\x02appid\0");
         content.extend_from_slice(&3_026_956_319_u32.to_le_bytes());
-        content.extend_from_slice(b"\x01appname\0Resident Evil 2 Randomizer\0\x01exe\0re2.exe\0");
+        content.extend_from_slice(b"\x01AppName\0Resident Evil 2 Randomizer\0\x01exe\0re2.exe\0");
 
         assert_eq!(
             parse_shortcuts(&content),
