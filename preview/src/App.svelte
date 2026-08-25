@@ -11,10 +11,11 @@
   import defaultAvatar from '../../app/resources/img/avatar.png';
   import ConfirmDialog from './components/ConfirmDialog.svelte';
   import GameConfigDialog from './components/GameConfigDialog.svelte';
+  import NotificationCard from './components/NotificationCard.svelte';
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
-  import type { AchievementObservation, AppSettings, GameSummary, OperationSnapshot, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
+  import type { AchievementObservation, AppSettings, GameSummary, NotificationEvent, NotificationRenderRequest, OperationSnapshot, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
   let settings: AppSettings | null = null;
@@ -56,6 +57,8 @@
   let blacklistedGames: Array<{ gameId: string; name: string }> = [];
   let defaultScreenshotDirectory = '';
   let defaultClipDirectory = '';
+  let notificationPreviewConfig: NotificationRenderRequest['presetConfig'] = { width: 382, height: 106, durationMs: 4_000 };
+  let notificationPreviewRequest = 0;
   let savingSettings = false;
   let maximized = false;
   let gameMenuElement: HTMLElement;
@@ -461,6 +464,41 @@
     }
   }
 
+  async function refreshNotificationPreview() {
+    if (!settings) return;
+    const request = ++notificationPreviewRequest;
+    try {
+      const config = await invoke<NotificationRenderRequest['presetConfig']>('notification_preset_config', {
+        preset: settings.notificationPreset,
+      });
+      if (request === notificationPreviewRequest) notificationPreviewConfig = config;
+    } catch (error) {
+      if (request === notificationPreviewRequest) status = `Could not load the notification preview: ${String(error)}`;
+    }
+  }
+
+  const notificationPreviewEvent: NotificationEvent = {
+    id: -1,
+    eventKey: 'settings-preview',
+    kind: 'unlock',
+    observation: {
+      sourceId: 'steam', gameId: '400', achievementId: 'PORTAL_TRANSMISSION_RECEIVED',
+      achieved: true, hidden: false, currentProgress: 0, maxProgress: 0, unlockTime: 0,
+      displayName: 'Transmission Received', description: 'Find all radios in the test chambers.',
+    },
+    attempts: 0,
+    nextAttemptAt: 0,
+  };
+
+  function notificationPreviewFit() {
+    if (!settings) return 1;
+    return Math.min(1, 440 / (notificationPreviewConfig.width * settings.notificationScalePercent / 100));
+  }
+
+  function notificationPreviewPosition() {
+    return settings?.notificationPosition.replace('_', '-') ?? 'bottom-right';
+  }
+
   async function testNotificationKind(command: 'test_progress_notification' | 'test_playtime_notification', label: string) {
     status = `Sending ${label.toLowerCase()} notification test…`;
     try {
@@ -569,8 +607,12 @@
     settingsError = '';
     settingsTab = 'general';
     view = 'settings';
-    blacklistedGames = await invoke<typeof blacklistedGames>('list_blacklisted_games').catch(() =>
-      settings?.blacklistedGameIds.map((gameId) => ({ gameId, name: gameId })) ?? []);
+    const [listedGames] = await Promise.all([
+      invoke<typeof blacklistedGames>('list_blacklisted_games').catch(() =>
+        settings?.blacklistedGameIds.map((gameId) => ({ gameId, name: gameId })) ?? []),
+      refreshNotificationPreview(),
+    ]);
+    blacklistedGames = listedGames;
   }
 
   function restoreBlacklistedGame(gameId: string) {
@@ -597,7 +639,7 @@
     if (settingsSnapshot) {
       settings = cloneSettings(settingsSnapshot);
       applyLanguage();
-      await loadAvatar();
+      await Promise.all([loadAvatar(), refreshNotificationPreview()]);
     }
     settingsSnapshot = null;
     view = 'library';
@@ -921,6 +963,7 @@
         invoke<string>('default_screenshot_directory'),
         invoke<string>('default_clip_directory'),
       ]);
+      await refreshNotificationPreview();
       applyLanguage();
       await Promise.all([loadDiagnostics(), loadAvatar()]);
       operation = await invoke<OperationSnapshot>('operation_status').catch(() => null);
@@ -1110,19 +1153,40 @@
         <label class="check nested"><input type="checkbox" bind:checked={settings.notifyOnPlaytime} onchange={save} /> Notify when playtime tracking starts and stops</label>
         <label class="check nested"><input type="checkbox" bind:checked={settings.notificationShowDescription} onchange={save} /> Show achievement descriptions</label>
         <label class="field"><span>Desktop delivery</span><select bind:value={settings.notificationMode} onchange={save}><option value="overlay_with_native_fallback">Custom popup with Windows fallback</option><option value="overlay_only">Custom popup only</option><option value="native_only">Windows notification only</option></select></label>
-        {#if settings.notificationMode !== 'native_only'}
-          <label class="field"><span>Popup style</span><select bind:value={settings.notificationPreset} onchange={save}><option value="steam">Steam</option><option value="default">Achievement Watcher Default</option><option value="smooth_pop">SmoothPop</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="ps5_enhanced">PlayStation 5 Enhanced</option><option value="xbox_one">Xbox One</option><option value="xbox_360">Xbox 360</option><option value="raposo">Raposo</option><option value="xqjan">xqjan</option></select></label>
-          <label class="field"><span>Sound</span><select bind:value={settings.notificationSound} onchange={save}><option value="steam_deck">Steam Deck</option><option value="windows">Windows 10</option><option value="windows_11">Windows 11</option><option value="playstation">PlayStation</option><option value="playstation_5">PlayStation 5</option><option value="playstation_platinum">PlayStation 5 Platinum</option><option value="gog">GOG Galaxy</option><option value="android">Android Popcorn</option>{#if settings.notificationCustomSoundPath}<option value="custom">Custom file</option>{/if}<option value="none">None</option></select><button type="button" onclick={chooseNotificationSound}>Browse…</button></label>
-          {#if settings.notificationSound === 'custom'}<div class="folder-setting nested"><span>Custom sound</span><code title={settings.notificationCustomSoundPath}>{settings.notificationCustomSoundPath}</code><button onclick={chooseNotificationSound}>Change</button><button onclick={() => { if (settings) { settings.notificationCustomSoundPath = undefined; settings.notificationSound = 'steam_deck'; void save(); } }}>Reset</button></div>{/if}
-          <label class="check nested"><input type="checkbox" bind:checked={settings.rumbleEnabled} onchange={save} /> Vibrate connected Xbox-compatible controllers on unlock</label>
-          {#if settings.rumbleEnabled}<label class="field nested"><span>Rumble strength</span><input type="range" min="1" max="100" bind:value={settings.rumbleStrengthPercent} onchange={save} /><output>{settings.rumbleStrengthPercent}%</output></label><label class="field nested"><span>Rumble duration</span><select bind:value={settings.rumbleDurationMs} onchange={save}><option value={250}>Short</option><option value={450}>Normal</option><option value={800}>Long</option></select></label>{/if}
+        {/if}
+      </div>
+      {#if settings.notificationEnabled && settings.notificationMode !== 'native_only'}
+      <div class="settings-group">
+        <h3>Popup appearance</h3>
+          <div class="notification-preview-block">
+            <div class="notification-preview-heading"><span>Live preview</span>{#if notificationPreviewFit() < 1}<small>Fitted to {Math.round(notificationPreviewFit() * 100)}%</small>{:else}<small>Actual popup size</small>{/if}</div>
+            <div class={`notification-preview ${notificationPreviewPosition()}`}>
+              <div class="notification-preview-popup" style={`width:${notificationPreviewConfig.width * settings.notificationScalePercent / 100 * notificationPreviewFit()}px;height:${notificationPreviewConfig.height * settings.notificationScalePercent / 100 * notificationPreviewFit()}px`}>
+                <NotificationCard event={notificationPreviewEvent} showDescription={settings.notificationShowDescription} preset={settings.notificationPreset} duration={Math.round(notificationPreviewConfig.durationMs * settings.notificationDurationPercent / 100)} scalePercent={settings.notificationScalePercent * notificationPreviewFit()} presetConfig={notificationPreviewConfig} controls={false} replay />
+              </div>
+            </div>
+          </div>
+          <label class="field"><span>Popup style</span><select bind:value={settings.notificationPreset} onchange={() => { void refreshNotificationPreview(); void save(); }}><option value="steam">Steam</option><option value="default">Achievement Watcher Default</option><option value="smooth_pop">SmoothPop</option><option value="ps4">PlayStation 4</option><option value="ps5">PlayStation 5</option><option value="ps5_enhanced">PlayStation 5 Enhanced</option><option value="xbox_one">Xbox One</option><option value="xbox_360">Xbox 360</option><option value="raposo">Raposo</option><option value="xqjan">xqjan</option></select></label>
           <label class="field"><span>Animation duration</span><input type="range" min="10" max="500" step="10" bind:value={settings.notificationDurationPercent} onchange={save} /><output>{settings.notificationDurationPercent}%</output></label>
           <label class="field"><span>Popup scale</span><input type="range" min="50" max="150" step="5" bind:value={settings.notificationScalePercent} onchange={save} /><output>{settings.notificationScalePercent}%</output></label>
           <label class="field"><span>Screen position</span><select bind:value={settings.notificationPosition} onchange={save}><option value="bottom_right">Bottom right</option><option value="bottom_center">Center bottom</option><option value="bottom_left">Bottom left</option><option value="top_right">Top right</option><option value="top_center">Center top</option><option value="top_left">Top left</option></select></label>
-        {/if}
-        <div class="field"><span>Preview</span><button onclick={testNotification}>Test notification</button></div>
-        {/if}
+          <p class="settings-help">This uses the same renderer and proportions as the desktop popup. Oversized popups are scaled down to fit this panel.</p>
       </div>
+      {/if}
+      {#if settings.notificationEnabled}
+      <div class="settings-group">
+        <h3>Unlock feedback</h3>
+        {#if settings.notificationMode !== 'native_only'}
+        <label class="field"><span>Sound</span><select bind:value={settings.notificationSound} onchange={save}><option value="steam_deck">Steam Deck</option><option value="windows">Windows 10</option><option value="windows_11">Windows 11</option><option value="playstation">PlayStation</option><option value="playstation_5">PlayStation 5</option><option value="playstation_platinum">PlayStation 5 Platinum</option><option value="gog">GOG Galaxy</option><option value="android">Android Popcorn</option>{#if settings.notificationCustomSoundPath}<option value="custom">Custom file</option>{/if}<option value="none">None</option></select><button type="button" onclick={chooseNotificationSound}>Browse…</button></label>
+        {#if settings.notificationSound === 'custom'}<div class="folder-setting nested"><span>Custom sound</span><code title={settings.notificationCustomSoundPath}>{settings.notificationCustomSoundPath}</code><button onclick={chooseNotificationSound}>Change</button><button onclick={() => { if (settings) { settings.notificationCustomSoundPath = undefined; settings.notificationSound = 'steam_deck'; void save(); } }}>Reset</button></div>{/if}
+        {:else}
+        <p class="settings-help">Windows controls the sound used by native notifications.</p>
+        {/if}
+        <label class="check"><input type="checkbox" bind:checked={settings.rumbleEnabled} onchange={save} /> Vibrate connected Xbox-compatible controllers on unlock</label>
+        {#if settings.rumbleEnabled}<label class="field nested"><span>Rumble strength</span><input type="range" min="1" max="100" bind:value={settings.rumbleStrengthPercent} onchange={save} /><output>{settings.rumbleStrengthPercent}%</output></label><label class="field nested"><span>Rumble duration</span><select bind:value={settings.rumbleDurationMs} onchange={save}><option value={250}>Short</option><option value={450}>Normal</option><option value={800}>Long</option></select></label>{/if}
+        <p class="settings-help">Sound and controller vibration play only for delivered notifications and tests run from Diagnostics.</p>
+      </div>
+      {/if}
       <div class="settings-group">
         <h3>Fullscreen delivery</h3>
         <label class="check"><input type="checkbox" bind:checked={settings.gameBarEnabled} onchange={save} /> Use Xbox Game Bar companion when available</label>
@@ -1228,7 +1292,7 @@
       </div>
       {/if}
       </div></div>
-      <div class="settings-footer"><div class="settings-notice"><span>Preview v{diagnosticData?.appVersion ?? '…'} ·</span><button onclick={() => invoke('open_project_page', { project: 'fork' })}>darktakayanagi/achievement-watcher</button><span>· Original v1.6.8 ·</span><button onclick={() => invoke('open_project_page', { project: 'original' })}>xan105/achievement-watcher</button></div><div><button disabled={savingSettings} onclick={cancelSettings}>{t('settings.common.cancel', 'Cancel')}</button><button class="primary" onclick={acceptSettings} disabled={savingSettings || !settingsDirty()}>{savingSettings ? 'Saving…' : t('settings.common.save', 'Save')}</button></div></div>
+      <div class="settings-footer"><span>{settingsDirty() ? 'Unsaved changes' : 'Settings are up to date'}</span><div><button disabled={savingSettings} onclick={cancelSettings}>{t('settings.common.cancel', 'Cancel')}</button><button class="primary" onclick={acceptSettings} disabled={savingSettings || !settingsDirty()}>{savingSettings ? 'Saving…' : t('settings.common.save', 'Save')}</button></div></div>
       </div>
     </section>
   {/if}
