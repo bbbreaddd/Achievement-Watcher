@@ -2701,9 +2701,10 @@ fn refresh_metadata_sync(
             let game_metadata = store.game_metadata(&game_id).map_err(error)?;
             (
                 force_refresh
-                    || game_metadata
-                        .as_ref()
-                        .is_none_or(|(_, icon)| icon.is_none()),
+                    || game_metadata.as_ref().is_none_or(|(_, icon)| {
+                        icon.as_deref()
+                            .is_none_or(|icon| icon == legacy_steam_header_url(&game_id))
+                    }),
                 force_refresh || !store.has_achievement_metadata(&game_id).map_err(error)?,
                 force_refresh || !store.has_global_percentages(&game_id).map_err(error)?,
             )
@@ -2712,33 +2713,28 @@ fn refresh_metadata_sync(
             let url = format!("https://store.steampowered.com/api/appdetails?appids={game_id}");
             if let Ok(response) = agent.get(&url).call()
                 && let Ok(value) = response.into_json::<serde_json::Value>()
-                && let Some(name) = value
-                    .get(&game_id)
-                    .and_then(|item| item.get("data"))
-                    .and_then(|data| data.get("name"))
-                    .and_then(|name| name.as_str())
+                && let Some((name, icon)) = steam_app_details(&value, &game_id)
             {
-                let icon = format!(
-                    "https://cdn.cloudflare.steamstatic.com/steam/apps/{game_id}/header.jpg"
-                );
-                let cached_icon = artwork::cache_image(
-                    &agent,
-                    &state.data_dir,
-                    &format!("steam-{game_id}-header"),
-                    &icon,
-                )
-                .ok();
+                let cached_icon = icon.as_deref().and_then(|icon| {
+                    artwork::cache_image(
+                        &agent,
+                        &state.data_dir,
+                        &format!("steam-{game_id}-header"),
+                        icon,
+                    )
+                    .ok()
+                });
                 state
                     .store
                     .lock()
                     .map_err(lock_error)?
                     .save_game_metadata(
                         &game_id,
-                        name,
+                        &name,
                         cached_icon
                             .as_deref()
                             .and_then(Path::to_str)
-                            .or(Some(icon.as_str())),
+                            .or(icon.as_deref()),
                     )
                     .map_err(error)?;
                 updated += 1;
@@ -2769,6 +2765,20 @@ fn refresh_metadata_sync(
         let _ = app.emit("library-changed", ());
     }
     Ok(updated)
+}
+
+fn legacy_steam_header_url(game_id: &str) -> String {
+    format!("https://cdn.cloudflare.steamstatic.com/steam/apps/{game_id}/header.jpg")
+}
+
+fn steam_app_details(value: &serde_json::Value, game_id: &str) -> Option<(String, Option<String>)> {
+    let data = value.get(game_id)?.get("data")?;
+    let name = data.get("name")?.as_str()?.to_owned();
+    let icon = data
+        .get("header_image")
+        .and_then(|icon| icon.as_str())
+        .map(str::to_owned);
+    Some((name, icon))
 }
 
 #[tauri::command]
@@ -5010,8 +5020,8 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
 mod tests {
     use super::{
         deduplicate_source_locations, effective_notification_mode, emulator_config_value,
-        sanitize_steam_xml, source_uses_steam_metadata, stable_source_id, steam_id64,
-        steam_percentage, steam_xml_section,
+        sanitize_steam_xml, source_uses_steam_metadata, stable_source_id, steam_app_details,
+        steam_id64, steam_percentage, steam_xml_section,
     };
     use aw_core::{AppSettings, NotificationMode, SourceKind, SourceLocation};
     use std::path::Path;
@@ -5035,6 +5045,26 @@ mod tests {
         assert!(source_uses_steam_metadata(SourceKind::SteamEmulator));
         assert!(!source_uses_steam_metadata(SourceKind::Gog));
         assert!(!source_uses_steam_metadata(SourceKind::Epic));
+    }
+
+    #[test]
+    fn reads_the_authoritative_steam_header_url() {
+        let details = serde_json::json!({
+            "1538550": {
+                "success": true,
+                "data": {
+                    "name": "LEGO Voyagers",
+                    "header_image": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1538550/hash/header.jpg"
+                }
+            }
+        });
+        assert_eq!(
+            steam_app_details(&details, "1538550"),
+            Some((
+                "LEGO Voyagers".into(),
+                Some("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1538550/hash/header.jpg".into())
+            ))
+        );
     }
 
     #[test]
