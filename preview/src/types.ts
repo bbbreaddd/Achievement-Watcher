@@ -48,6 +48,7 @@ export interface AppSettings {
   obsPort: number;
   obsPassword: string;
   obsStartReplayBuffer: boolean;
+  clipDirectory?: string;
   customActionEnabled: boolean;
   customActionExecutable: string;
   customActionArguments: string;
