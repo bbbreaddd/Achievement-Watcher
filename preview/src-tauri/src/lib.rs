@@ -1108,7 +1108,7 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
                 last_unlock_time: 0,
                 playtime_seconds: 0,
                 last_played: 0,
-                icon: observation.icon.clone(),
+                icon: None,
                 tracked: true,
             });
         entry.total += 1;
@@ -1124,9 +1124,6 @@ fn list_games(state: State<'_, AppState>) -> CommandResult<Vec<GameSummary>> {
         }
         if observation.achieved {
             entry.last_unlock_time = entry.last_unlock_time.max(observation.unlock_time);
-        }
-        if entry.icon.is_none() {
-            entry.icon = observation.icon;
         }
     }
     for game in games.values_mut() {

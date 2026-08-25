@@ -123,12 +123,16 @@
       && ['steam', 'steam_emulator', 'green_luma', 'watchdog_cache'].includes(game.sourceKind ?? '');
   }
 
+  function isLocalPath(value: string) {
+    return value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\');
+  }
+
   function imageUrl(value: string) {
-    return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\') ? convertFileSrc(value) : value;
+    return isLocalPath(value) ? convertFileSrc(value) : value;
   }
 
   function gameArtwork(game: GameSummary) {
-    if (game.icon && (/^[a-zA-Z]:[\\/]/.test(game.icon) || game.icon.startsWith('\\\\'))) {
+    if (game.icon && isLocalPath(game.icon)) {
       return imageUrl(game.icon);
     }
     if (settings?.thumbnailPortrait && hasSteamAppId(game)) {
@@ -139,7 +143,7 @@
 
   function gameArtworkFailed(event: Event, game: GameSummary) {
     const image = event.currentTarget as HTMLImageElement;
-    const localFailed = game.icon && (/^[a-zA-Z]:[\\/]/.test(game.icon) || game.icon.startsWith('\\\\')) && image.src === imageUrl(game.icon);
+    const localFailed = game.icon && isLocalPath(game.icon) && image.src === imageUrl(game.icon);
     if (localFailed && settings?.thumbnailPortrait && hasSteamAppId(game)) image.src = `https://cdn.cloudflare.steamstatic.com/steam/apps/${game.gameId}/library_600x900_2x.jpg`;
     else if (settings?.thumbnailPortrait && game.icon && image.src !== imageUrl(game.icon)) image.src = imageUrl(game.icon);
     else image.remove();
