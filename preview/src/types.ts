@@ -1,6 +1,15 @@
 export type SourceKind = 'steam' | 'gog_galaxy' | 'steam_emulator' | 'green_luma' | 'rpcs3' | 'epic' | 'gog' | 'luma_play' | 'watchdog_cache';
 export type NotificationMode = 'overlay_with_native_fallback' | 'overlay_only' | 'native_only';
 
+export interface PlatformCapabilities {
+  os: string;
+  gameBar: boolean;
+  screenshots: boolean;
+  rumble: boolean;
+  customNotifications: boolean;
+  automaticUpdateInstall: boolean;
+}
+
 export interface SourceLocation {
   id: string;
   kind: SourceKind;

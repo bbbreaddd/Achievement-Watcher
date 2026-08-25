@@ -4,6 +4,7 @@ mod gntp;
 mod jobs;
 mod notification_preset;
 mod obs;
+mod platform;
 mod process;
 mod registry;
 mod rumble;
@@ -53,6 +54,11 @@ struct AppState {
     data_dir: PathBuf,
     screenshot_dir: PathBuf,
     clip_dir: PathBuf,
+}
+
+#[tauri::command]
+fn platform_capabilities() -> platform::Capabilities {
+    platform::capabilities()
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -453,21 +459,7 @@ fn open_release_page(url: String) -> CommandResult<()> {
     if !url.starts_with("https://github.com/darktakayanagi/Achievement-Watcher/releases/") {
         return Err("Unsupported release URL".into());
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        Command::new("explorer.exe")
-            .arg(url)
-            .creation_flags(0x0800_0000)
-            .spawn()
-            .map_err(error)?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = url;
-        Err("Opening release pages is available only on Windows".into())
-    }
+    platform::open(url)
 }
 
 #[tauri::command]
@@ -481,21 +473,7 @@ fn open_game_website(game_id: String, website: String) -> CommandResult<()> {
         "pcgamingwiki" => format!("https://pcgamingwiki.com/api/appid.php?appid={game_id}"),
         _ => return Err("Unsupported game website".into()),
     };
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        Command::new("explorer.exe")
-            .arg(url)
-            .creation_flags(0x0800_0000)
-            .spawn()
-            .map_err(error)?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = url;
-        Err("Opening game websites is available only on Windows".into())
-    }
+    platform::open(url)
 }
 
 #[tauri::command]
@@ -506,21 +484,7 @@ fn open_project_page(project: String) -> CommandResult<()> {
         "wiki" => "https://github.com/xan105/Achievement-Watcher/wiki",
         _ => return Err("Unsupported project page".into()),
     };
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        Command::new("explorer.exe")
-            .arg(url)
-            .creation_flags(0x0800_0000)
-            .spawn()
-            .map_err(error)?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = url;
-        Err("Opening project pages is available only on Windows".into())
-    }
+    platform::open(url)
 }
 
 #[tauri::command]
@@ -647,9 +611,20 @@ fn open_data_location(
     }
     #[cfg(not(windows))]
     {
-        let _ = select_file;
-        let _ = target;
-        Err("Opening application data is available only on Windows".into())
+        if select_file && !target.exists() {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&target)
+                .map_err(error)?;
+        } else if !select_file {
+            std::fs::create_dir_all(&target).map_err(error)?;
+        }
+        if select_file {
+            platform::reveal_file(&target)
+        } else {
+            platform::open(&target)
+        }
     }
 }
 
@@ -758,25 +733,7 @@ fn reveal_source_path(target: &Path) -> CommandResult<()> {
     if !target.is_file() {
         return Err("The achievement source file no longer exists".into());
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let directory = target
-            .parent()
-            .ok_or_else(|| "The achievement source folder is unavailable".to_string())?
-            .canonicalize()
-            .map_err(error)?;
-        Command::new("explorer.exe")
-            .arg(directory)
-            .creation_flags(0x0800_0000)
-            .spawn()
-            .map(|_| ())
-            .map_err(error)
-    }
-    #[cfg(not(windows))]
-    {
-        Err("Opening achievement sources is available only on Windows".into())
-    }
+    platform::reveal_file(target)
 }
 
 #[derive(Serialize)]
@@ -1763,8 +1720,8 @@ fn launch_steam_uri(game_id: &str) -> CommandResult<()> {
 }
 
 #[cfg(not(windows))]
-fn launch_steam_uri(_game_id: &str) -> CommandResult<()> {
-    Err("Launching Steam games is available only on Windows".into())
+fn launch_steam_uri(game_id: &str) -> CommandResult<()> {
+    platform::open(format!("steam://run/{game_id}"))
 }
 
 fn split_command_line(value: &str) -> Vec<String> {
@@ -4733,6 +4690,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            platform_capabilities,
             load_settings,
             read_profile_avatar,
             read_notification_audio,
