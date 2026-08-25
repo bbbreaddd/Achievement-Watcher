@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { getCurrentWindow } from '@tauri-apps/api/window';
+
   interface Props {
     activity: string | null;
     settingsActive: boolean;
@@ -10,9 +12,15 @@
   }
 
   let { activity, settingsActive, maximized, onMinimize, onSettings, onMaximize, onClose }: Props = $props();
+
+  function startTouchDrag(event: PointerEvent) {
+    if (event.isPrimary && event.pointerType !== 'mouse' && !(event.target as HTMLElement).closest('button')) {
+      void getCurrentWindow().startDragging();
+    }
+  }
 </script>
 
-<header class="title-bar" data-tauri-drag-region>
+<header class="title-bar" data-tauri-drag-region onpointerdown={startTouchDrag}>
   <div class="watcher-state">
     <span class:busy={Boolean(activity)}></span>
     <span>{activity ?? 'Achievement Watcher is running'}</span>

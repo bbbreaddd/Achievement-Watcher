@@ -12,7 +12,7 @@ button:hover { background: #304660; border-color: #60738e; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--aw-achievement); outline-offset: 1px; }
 button:disabled { cursor: default; opacity: .55; }
 h1, h2, h3, p { margin: 0; }
-.title-bar { position: relative; z-index: 100; height: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: #10182194; color: #8d929a; }
+.title-bar { position: relative; z-index: 100; height: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: #10182194; color: #8d929a; touch-action: none; user-select: none; }
 .title-bar .watcher-state { display: flex; align-items: center; gap: 9px; font-size: 11px; }
 .title-bar .watcher-state > span:first-child { width: 8px; height: 8px; border-radius: 50%; background: #0bbf0b; box-shadow: 0 0 0 3px #0bbf0b25; }
 .title-bar .watcher-state > span:first-child.busy { background: #db8719; box-shadow: 0 0 0 3px #db871925; }
