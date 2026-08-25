@@ -389,6 +389,27 @@ impl Store {
         Ok(())
     }
 
+    pub fn save_game_metadata_if_achievements(
+        &self,
+        game_id: &str,
+        name: &str,
+        icon: Option<&str>,
+    ) -> Result<bool> {
+        let has_achievements: bool = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM observations WHERE game_id=?1)
+             OR EXISTS(SELECT 1 FROM achievement_metadata WHERE game_id=?1)",
+            [game_id],
+            |row| row.get(0),
+        )?;
+        if has_achievements {
+            self.save_game_metadata(game_id, name, icon)?;
+        } else {
+            self.connection
+                .execute("DELETE FROM games WHERE game_id=?1", [game_id])?;
+        }
+        Ok(has_achievements)
+    }
+
     pub fn canonical_game_id(&self, game_id: &str) -> Result<String> {
         Ok(self
             .connection
@@ -787,6 +808,30 @@ mod tests {
         assert_eq!(games[0].game_id, "400");
         assert_eq!(games[0].total, 0);
         assert!(!games[0].tracked);
+    }
+
+    #[test]
+    fn shortcut_metadata_requires_achievement_data() {
+        let mut store = Store::open_memory().unwrap();
+        store
+            .save_game_metadata("900", "Empty Shortcut", None)
+            .unwrap();
+        assert!(
+            !store
+                .save_game_metadata_if_achievements("900", "Empty Shortcut", None)
+                .unwrap()
+        );
+        assert!(store.catalog_games().unwrap().is_empty());
+
+        let mut achievement = observation(false, 0);
+        achievement.game_id = "901".into();
+        store.record_observations(&[achievement], true).unwrap();
+        assert!(
+            store
+                .save_game_metadata_if_achievements("901", "Useful Shortcut", None)
+                .unwrap()
+        );
+        assert_eq!(store.catalog_games().unwrap()[0].name, "Useful Shortcut");
     }
 
     #[test]
