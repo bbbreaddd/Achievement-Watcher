@@ -4908,8 +4908,9 @@ fn show_main_window(app: &AppHandle) -> CommandResult<()> {
         Some(window) => window,
         None => WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
             .title("Achievement Watcher")
-            .inner_size(1200.0, 800.0)
-            .min_inner_size(900.0, 600.0)
+            .inner_size(1000.0, 620.0)
+            .min_inner_size(640.0, 420.0)
+            .center()
             .decorations(false)
             .build()
             .map_err(error)?,

@@ -24,10 +24,11 @@
       {
         "label": "main",
         "title": "Achievement Watcher",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 900,
-        "minHeight": 600,
+        "width": 1000,
+        "height": 620,
+        "minWidth": 640,
+        "minHeight": 420,
+        "center": true,
         "decorations": false
       }
     ]
