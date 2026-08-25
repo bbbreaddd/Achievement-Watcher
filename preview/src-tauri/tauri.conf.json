@@ -35,10 +35,6 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "externalBin": ["binaries/achievement-watcher-steam-helper"],
-    "resources": {
-      "binaries/steam_api64.dll": "steam_api64.dll"
-    },
     "windows": {
       "webviewInstallMode": { "type": "embedBootstrapper" },
       "nsis": {
