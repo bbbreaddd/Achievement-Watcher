@@ -6,6 +6,9 @@ obs
 app/node_modules/
 watchdog/node_modules/
 preview/node_modules/
+service/watchdog/node_modules/
+service/node/
+node/
 
 # Logs
 logs/
@@ -32,6 +35,10 @@ preview/game-bar-companion/obj/
 preview/game-bar-companion/AppPackages/
 preview/game-bar-companion/*.pfx
 preview/game-bar-companion/*.cer
+service/build/
+service/watchdog/_wip_/
+setup/prod/
+setup/{{appData}}/
 
 # Coverage and testing
 coverage/
