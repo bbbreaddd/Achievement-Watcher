@@ -7,6 +7,9 @@ app/node_modules/
 watchdog/node_modules/
 preview/node_modules/
 service/watchdog/node_modules/
+service/src/watchdog/node_modules/
+service/updater/node_modules/
+server/node_modules/
 service/node/
 node/
 
