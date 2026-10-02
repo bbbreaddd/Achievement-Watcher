@@ -16,7 +16,7 @@
   import SourceBadge from './components/SourceBadge.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import TitleBar from './components/TitleBar.svelte';
-  import type { AchievementObservation, AppSettings, GameSummary, NotificationEvent, NotificationRenderRequest, OperationSnapshot, PlatformCapabilities, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
+  import type { AchievementObservation, AppSettings, GameSummary, MetadataRefreshResult, NotificationEvent, NotificationRenderRequest, OperationSnapshot, PlatformCapabilities, SettingsApplyResult, SourceKind, UpdateInfo } from './types';
 
   let games: GameSummary[] = [];
   let settings: AppSettings | null = null;
@@ -514,18 +514,30 @@
   }
 
   type OpenGameRequest = { sourceId: string; gameId: string; achievementId: string };
+  let lastOpenedRequest = '';
+  let lastOpenedAt = 0;
 
   async function consumeOpenGameRequest(fallback?: OpenGameRequest) {
     const pending = await invoke<OpenGameRequest | null>('pending_open_game');
-    const request = pending ?? fallback;
+    const request = fallback ?? pending;
     if (!request) return;
+    const key = JSON.stringify([request.sourceId, request.gameId, request.achievementId]);
+    const acknowledge = pending?.sourceId === request.sourceId
+      && pending?.gameId === request.gameId
+      && pending?.achievementId === request.achievementId;
+    if (key === lastOpenedRequest && Date.now() - lastOpenedAt < 1_000) {
+      if (acknowledge) await invoke('acknowledge_pending_open_game', { request });
+      return;
+    }
     await refresh();
     const game = games.find((item) => item.gameId === request.gameId && item.sourceId === request.sourceId)
       ?? games.find((item) => item.gameId === request.gameId);
     if (game) {
       view = 'library';
       await openGame(game, request.achievementId);
-      if (pending) await invoke('acknowledge_pending_open_game', { request: pending });
+      lastOpenedRequest = key;
+      lastOpenedAt = Date.now();
+      if (acknowledge) await invoke('acknowledge_pending_open_game', { request });
     }
   }
 
@@ -697,11 +709,13 @@
     gameMenu = null;
     status = `Refreshing information for ${game.name}…`;
     try {
-      const updated = await invoke<number>('refresh_metadata', { gameId: game.gameId });
+      const result = await invoke<MetadataRefreshResult>('refresh_metadata', { gameId: game.gameId });
       await refresh();
-      status = updated > 0
-        ? `${game.name} information refreshed`
-        : `No new information was available for ${game.name}`;
+      status = result.warnings.length
+        ? `${game.name} information partially refreshed: ${result.warnings.join('; ')}`
+        : result.updated > 0
+          ? `${game.name} information refreshed`
+          : `No new information was available for ${game.name}`;
     } catch (error) {
       status = `Metadata refresh failed: ${String(error)}`;
     }
@@ -709,12 +723,14 @@
 
   async function refreshMissingMetadata(expectedStatus?: string, reportSuccess = true) {
     try {
-      const updated = await invoke<number>('refresh_metadata', { gameId: null });
+      const result = await invoke<MetadataRefreshResult>('refresh_metadata', { gameId: null });
       await refresh();
       if (reportSuccess && (!expectedStatus || status === expectedStatus)) {
-        status = updated > 0
-          ? `Library information updated for ${updated} item${updated === 1 ? '' : 's'}`
-          : 'Library is up to date';
+        status = result.warnings.length
+          ? `Library information refreshed with ${result.warnings.length} source error${result.warnings.length === 1 ? '' : 's'}`
+          : result.updated > 0
+            ? `Library information updated for ${result.updated} item${result.updated === 1 ? '' : 's'}`
+            : 'Library is up to date';
       }
     } catch (error) {
       // Metadata is optional enrichment. A network or Steam Community failure
@@ -1037,8 +1053,17 @@
     void register('open-game', (({ payload }: { payload: OpenGameRequest }) => {
         queueOpenGameRequest(payload);
       }) as Parameters<typeof listen>[1]);
-    void register('main-close-requested', () => closeWindow());
-    queueOpenGameRequest();
+    void appWindow.onCloseRequested((event) => {
+      event.preventDefault();
+      closeWindow();
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else cleanup.push(unlisten);
+    }).catch((error) => {
+      liveUpdateErrors = [...new Set([...liveUpdateErrors, 'window-close'])];
+      console.error('Could not register window close handler:', error);
+    });
+    void initialized.then(() => queueOpenGameRequest());
     return () => {
       disposed = true;
       cleanup.splice(0).forEach((unlisten) => unlisten());

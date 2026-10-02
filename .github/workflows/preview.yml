@@ -1,16 +1,6 @@
 name: Preview checks
 
 on:
-  push:
-    tags:
-      - 'preview-v*'
-    paths:
-      - 'preview/**'
-      - '.github/workflows/preview.yml'
-  pull_request:
-    paths:
-      - 'preview/**'
-      - '.github/workflows/preview.yml'
   workflow_dispatch:
 
 permissions:

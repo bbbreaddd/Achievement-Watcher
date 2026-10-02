@@ -99,6 +99,13 @@ struct UpdateInfo {
     installer_name: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MetadataRefreshResult {
+    updated: usize,
+    warnings: Vec<String>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BlacklistedGame {
@@ -2518,7 +2525,10 @@ struct ApiAchievement {
 }
 
 #[tauri::command]
-async fn refresh_metadata(app: AppHandle, game_id: Option<String>) -> CommandResult<usize> {
+async fn refresh_metadata(
+    app: AppHandle,
+    game_id: Option<String>,
+) -> CommandResult<MetadataRefreshResult> {
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = handle.state::<AppState>();
@@ -2533,7 +2543,17 @@ async fn refresh_metadata(app: AppHandle, game_id: Option<String>) -> CommandRes
             state.jobs.begin("metadata", label, Utc::now().timestamp()),
         );
         let result = refresh_metadata_sync(handle.clone(), state.clone(), game_id);
-        emit_operation(&handle, state.jobs.finish(&result, Utc::now().timestamp()));
+        let operation_result = result.as_ref().map_err(Clone::clone).and_then(|report| {
+            if report.warnings.is_empty() {
+                Ok(report.updated)
+            } else {
+                Err(report.warnings.join("; "))
+            }
+        });
+        emit_operation(
+            &handle,
+            state.jobs.finish(&operation_result, Utc::now().timestamp()),
+        );
         result
     })
     .await
@@ -2544,7 +2564,7 @@ fn refresh_metadata_sync(
     app: AppHandle,
     state: State<'_, AppState>,
     game_id: Option<String>,
-) -> CommandResult<usize> {
+) -> CommandResult<MetadataRefreshResult> {
     // A game-specific refresh is an explicit user request. Re-fetch every
     // metadata layer instead of treating an existing cache row as success.
     let force_refresh = game_id.is_some();
@@ -2607,7 +2627,7 @@ fn refresh_metadata_sync(
                         &state,
                         &format!("Epic metadata skipped {game_id}: {message}"),
                     );
-                    fetch_errors.push(message);
+                    fetch_errors.push(format!("Epic {game_id}: {message}"));
                 }
             }
             continue;
@@ -2621,7 +2641,7 @@ fn refresh_metadata_sync(
                         &state,
                         &format!("GOG metadata skipped {game_id}: {message}"),
                     );
-                    fetch_errors.push(message);
+                    fetch_errors.push(format!("GOG {game_id}: {message}"));
                 }
             }
             continue;
@@ -2683,7 +2703,7 @@ fn refresh_metadata_sync(
                     &state,
                     &format!("Steam Store metadata skipped {game_id}: {message}"),
                 );
-                fetch_errors.push(message);
+                fetch_errors.push(format!("Steam Store {game_id}: {message}"));
             }
         }
         if needs_achievements && !steam_fallback_paused(&state) {
@@ -2695,7 +2715,7 @@ fn refresh_metadata_sync(
                         &state,
                         &format!("Steam achievement metadata skipped {game_id}: {message}"),
                     );
-                    fetch_errors.push(message);
+                    fetch_errors.push(format!("Steam achievements {game_id}: {message}"));
                 }
             }
         }
@@ -2708,7 +2728,7 @@ fn refresh_metadata_sync(
                         &state,
                         &format!("Steam rarity metadata skipped {game_id}: {message}"),
                     );
-                    fetch_errors.push(message);
+                    fetch_errors.push(format!("Steam rarity {game_id}: {message}"));
                 }
             }
         }
@@ -2716,10 +2736,10 @@ fn refresh_metadata_sync(
     if updated > 0 {
         let _ = app.emit("library-changed", ());
     }
-    if force_refresh && updated == 0 && !fetch_errors.is_empty() {
-        return Err(fetch_errors.join("; "));
-    }
-    Ok(updated)
+    Ok(MetadataRefreshResult {
+        updated,
+        warnings: fetch_errors,
+    })
 }
 
 fn legacy_steam_header_url(game_id: &str) -> String {
@@ -2776,12 +2796,8 @@ fn import_global_percentages(
     let url = format!(
         "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid={game_id}"
     );
-    let Ok(response) = agent.get(&url).call() else {
-        return Ok(false);
-    };
-    let Ok(value) = response.into_json::<serde_json::Value>() else {
-        return Ok(false);
-    };
+    let response = agent.get(&url).call().map_err(error)?;
+    let value = response.into_json::<serde_json::Value>().map_err(error)?;
     let Some(items) = value
         .pointer("/achievementpercentages/achievements")
         .and_then(|value| value.as_array())
@@ -3965,7 +3981,13 @@ fn configure_watcher(
     } else {
         Err(errors.join("; "))
     };
-    watcher_heartbeat(state, "File watcher", watching || !errors.is_empty(), false, health_result);
+    watcher_heartbeat(
+        state,
+        "File watcher",
+        watching || !errors.is_empty(),
+        false,
+        health_result,
+    );
     Ok(())
 }
 
@@ -4650,7 +4672,23 @@ fn handle_overlay_failure(
     reason: &str,
 ) {
     if presentation.mode == NotificationMode::OverlayWithNativeFallback {
-        notification_log(state, "attempting Windows notification fallback");
+        notification_log(
+            state,
+            &format!("Custom popup failed ({reason}); attempting system notification fallback"),
+        );
+        if event.id >= 0 {
+            let recorded = state.store.lock().map_err(lock_error).and_then(|store| {
+                store
+                    .record_delivery(event.id, "overlay", Err(reason))
+                    .map_err(error)
+            });
+            if let Err(message) = recorded {
+                notification_log(
+                    state,
+                    &format!("Could not record custom popup failure: {message}"),
+                );
+            }
+        }
         let _ = deliver_native(app, state, event, Some(presentation));
         return;
     }
@@ -4981,18 +5019,7 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Achievement Watcher")
-        .run(|app, event| {
-            if let tauri::RunEvent::WindowEvent {
-                label,
-                event: tauri::WindowEvent::CloseRequested { api, .. },
-                ..
-            } = event
-                && label == "main"
-            {
-                api.prevent_close();
-                let _ = app.emit_to("main", "main-close-requested", ());
-            }
-        });
+        .run(|_, _| {});
 }
 
 fn show_main_window(app: &AppHandle) -> CommandResult<()> {

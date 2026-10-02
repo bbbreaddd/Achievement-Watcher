@@ -10,6 +10,11 @@ export interface PlatformCapabilities {
   automaticUpdateInstall: boolean;
 }
 
+export interface MetadataRefreshResult {
+  updated: number;
+  warnings: string[];
+}
+
 export interface SourceLocation {
   id: string;
   kind: SourceKind;
