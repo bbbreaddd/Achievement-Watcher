@@ -14,11 +14,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: preview/package-lock.json
+          cache: pnpm
+          cache-dependency-path: preview/pnpm-lock.yaml
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
@@ -27,11 +30,11 @@ jobs:
         working-directory: preview
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
         working-directory: preview
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
         working-directory: preview
-      - run: npm run build
+      - run: pnpm run build
         working-directory: preview
-      - run: npm run check
+      - run: pnpm run check
         working-directory: preview
 
   build-windows:
@@ -39,18 +42,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: preview/package-lock.json
+          cache: pnpm
+          cache-dependency-path: preview/pnpm-lock.yaml
       - name: Apply preview tag version
         if: startsWith(github.ref, 'refs/tags/preview-v')
         shell: pwsh
         run: |
           $version = '${{ github.ref_name }}'.Substring('preview-v'.Length)
           Push-Location preview
-          npm version $version --no-git-tag-version
+          pnpm pkg set version=$version
           $config = Get-Content 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json
           $config.version = $version
           $config | ConvertTo-Json -Depth 100 | Set-Content 'src-tauri/tauri.conf.json' -Encoding utf8
@@ -59,7 +65,7 @@ jobs:
           Set-Content 'Cargo.toml' $cargo -Encoding utf8
           cargo generate-lockfile
           Pop-Location
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
         working-directory: preview
       - shell: pwsh
         run: ./scripts/dev-windows.ps1 -Release
@@ -109,11 +115,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.2.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: preview/package-lock.json
+          cache: pnpm
+          cache-dependency-path: preview/pnpm-lock.yaml
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
@@ -123,14 +132,14 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#preview-v}"
           cd preview
-          npm version "$version" --no-git-tag-version
+          pnpm pkg set "version=$version"
           node -e "const fs=require('fs'); const path='src-tauri/tauri.conf.json'; const config=JSON.parse(fs.readFileSync(path)); config.version=process.argv[1]; fs.writeFileSync(path, JSON.stringify(config, null, 2)+'\n')" "$version"
           sed -i -E "s/^version = \"[^\"]+\"/version = \"$version\"/" Cargo.toml
           cargo generate-lockfile
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
         working-directory: preview
       - name: Build AppImage and Debian package
-        run: npm run tauri build -- --bundles appimage,deb
+        run: pnpm run tauri build --bundles appimage,deb
         working-directory: preview
       - name: Collect Linux packages
         run: |

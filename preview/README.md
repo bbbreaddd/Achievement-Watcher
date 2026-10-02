@@ -14,13 +14,13 @@ These are targets until measured on packaged Windows builds. To measure a closed
 
 ## Development
 
-Requirements: current stable Rust, Node.js 22, npm, and the Tauri 2 prerequisites for your operating system.
+Requirements: current stable Rust, Node.js 22, pnpm 11.2.2, and the Tauri 2 prerequisites for your operating system. Install pnpm with `npm install -g pnpm@11.2.2` if it is not already available.
 
 ```powershell
-npm ci
+pnpm install --frozen-lockfile
 cargo test -p aw-core
-npm run build
-npm run tauri build
+pnpm run build
+pnpm run tauri build
 ```
 
 On Debian or Ubuntu, install the Linux build dependencies first:
@@ -52,18 +52,18 @@ When the repository is opened through a mapped Linux/Samba drive, the Windows he
 
 The main application installer is written to `%LOCALAPPDATA%\AchievementWatcherBuild\target\release\bundle\nsis`. CI publishes that NSIS installer and the separately sideloaded Game Bar package together in the `achievement-watcher-preview-windows` workflow artifact. Other generated files remain under `%LOCALAPPDATA%\AchievementWatcherBuild`. If `sccache` is installed, the script uses it automatically. To discard only this generated cache, run `./scripts/clean-windows-cache.ps1`.
 
-For frontend-only work, use `npm run dev`. For repeated frontend tests, use `npm run test:watch`. Reserve the optimized Tauri/NSIS build for installable checkpoints because release LTO and stripping trade build time for a smaller executable.
+For frontend-only work, use `pnpm run dev`. For repeated frontend tests, use `pnpm run test:watch`. Reserve the optimized Tauri/NSIS build for installable checkpoints because release LTO and stripping trade build time for a smaller executable.
 
 ### Linux beta
 
 Linux uses the same application, database, and UI as Windows. Steam is discovered from native, legacy, and Flatpak installations, including additional Steam libraries and known achievement sources inside Proton prefixes. Other local sources can be added manually.
 
 ```bash
-npm ci
-npm run tauri:dev
+pnpm install --frozen-lockfile
+pnpm run tauri:dev
 
 # Build both Linux packages
-npm run tauri build -- --bundles appimage,deb
+pnpm run tauri build --bundles appimage,deb
 ```
 
 The AppImage is the simplest portable option and does not require installation. Mark it executable before launching it. The Debian package integrates with the desktop application menu. Release builds are produced on Ubuntu 22.04 for compatibility with a wider range of distributions.

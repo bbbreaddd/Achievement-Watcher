@@ -52,17 +52,18 @@ if ($sccache) { Write-Host 'Compiler cache: sccache' }
 
 Push-Location $stageRoot
 try {
-  $lockHash = (Get-FileHash package-lock.json -Algorithm SHA256).Hash
+  $lockHash = (Get-FileHash pnpm-lock.yaml -Algorithm SHA256).Hash
   $hashFile = Join-Path $stageRoot 'node_modules\.achievement-watcher-lock-hash'
   $installedHash = if (Test-Path $hashFile) { Get-Content $hashFile -Raw } else { '' }
   if ($installedHash.Trim() -ne $lockHash) {
-    npm ci
+    pnpm install --frozen-lockfile --force
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     New-Item -ItemType Directory -Force -Path (Split-Path $hashFile) | Out-Null
     Set-Content -LiteralPath $hashFile -Value $lockHash -NoNewline
   }
 
   if ($CheckOnly) {
-    npm run check
+    pnpm run check
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & cargo test --workspace
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -71,7 +72,7 @@ try {
   }
 
   if ($Release) {
-    npm run tauri build
+    pnpm run tauri build
     Write-Host "Installer output: $env:CARGO_TARGET_DIR\release\bundle\nsis"
     exit $LASTEXITCODE
   }
@@ -98,7 +99,7 @@ try {
     }
   }
   try {
-    npm run tauri dev
+    pnpm run tauri dev
   } finally {
     Stop-Job $syncJob -ErrorAction SilentlyContinue
     Remove-Job $syncJob -Force -ErrorAction SilentlyContinue

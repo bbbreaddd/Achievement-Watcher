@@ -4,9 +4,9 @@
   "version": "0.1.0-preview.12",
   "identifier": "io.github.darktakayanagi.achievement-watcher.preview",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "pnpm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "pnpm run build",
     "frontendDist": "../dist"
   },
   "app": {
