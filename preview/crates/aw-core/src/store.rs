@@ -88,25 +88,37 @@ impl Store {
              );
              COMMIT;",
         )?;
-        let _ = self.connection.execute(
-            "ALTER TABLE observations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = self.connection.execute(
-            "ALTER TABLE achievement_metadata ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = self.connection.execute(
-            "ALTER TABLE achievement_metadata ADD COLUMN global_percent_hundredths INTEGER",
-            [],
-        );
-        let _ = self.connection.execute(
-            "ALTER TABLE achievement_metadata ADD COLUMN locked_icon TEXT",
-            [],
-        );
-        let _ = self
+        self.add_column_if_missing("observations", "hidden", "INTEGER NOT NULL DEFAULT 0")?;
+        self.add_column_if_missing(
+            "achievement_metadata",
+            "hidden",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.add_column_if_missing(
+            "achievement_metadata",
+            "global_percent_hundredths",
+            "INTEGER",
+        )?;
+        self.add_column_if_missing("achievement_metadata", "locked_icon", "TEXT")?;
+        self.add_column_if_missing("observations", "trophy_grade", "TEXT")?;
+        Ok(())
+    }
+
+    fn add_column_if_missing(&self, table: &str, column: &str, declaration: &str) -> Result<()> {
+        let mut statement = self
             .connection
-            .execute("ALTER TABLE observations ADD COLUMN trophy_grade TEXT", []);
+            .prepare(&format!("PRAGMA table_info({table})"))?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+        let mut exists = false;
+        for existing in columns {
+            exists |= existing? == column;
+        }
+        if !exists {
+            self.connection.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {declaration}"),
+                [],
+            )?;
+        }
         Ok(())
     }
 
@@ -124,6 +136,14 @@ impl Store {
         settings.steam_api_key = crate::secure::unprotect(&settings.steam_api_key)?;
         settings.obs_password = crate::secure::unprotect(&settings.obs_password)?;
         Ok(settings)
+    }
+
+    pub fn has_saved_settings(&self) -> Result<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM settings WHERE id = 1)",
+            [],
+            |row| row.get(0),
+        )?)
     }
 
     pub fn save_settings(&self, settings: &AppSettings) -> Result<()> {
@@ -284,18 +304,19 @@ impl Store {
             Ok(()) => (1, None),
             Err(error) => (0, Some(error)),
         };
-        self.connection.execute(
+        let transaction = self.connection.unchecked_transaction()?;
+        transaction.execute(
             "INSERT INTO delivery_attempts(event_id,transport,success,error,attempted_at)
              VALUES(?1,?2,?3,?4,?5)",
             params![event_id, transport, success, error, now],
         )?;
         if success == 1 {
-            self.connection.execute(
+            transaction.execute(
                 "UPDATE notification_events SET status='delivered', delivered_at=?2 WHERE id=?1",
                 params![event_id, now],
             )?;
         } else {
-            let attempts: i64 = self.connection.query_row(
+            let attempts: i64 = transaction.query_row(
                 "SELECT attempts FROM notification_events WHERE id=?1",
                 [event_id],
                 |row| row.get(0),
@@ -307,11 +328,12 @@ impl Store {
             } else {
                 "pending"
             };
-            self.connection.execute(
+            transaction.execute(
                 "UPDATE notification_events SET attempts=?2,next_attempt_at=?3,status=?4 WHERE id=?1",
                 params![event_id, next_attempts, now + delay, status],
             )?;
         }
+        transaction.commit()?;
         Ok(())
     }
 
@@ -757,6 +779,17 @@ mod tests {
         assert!(store.pending_events(i64::MAX, 10).unwrap()[0].attempts > 0);
         store.record_delivery(event.id, "native", Ok(())).unwrap();
         assert!(store.pending_events(i64::MAX, 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_delivery_update_rolls_back_attempt_record() {
+        let store = Store::open_memory().unwrap();
+        assert!(store.record_delivery(999, "native", Err("failed")).is_err());
+        let attempts: i64 = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM delivery_attempts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(attempts, 0);
     }
 
     #[test]

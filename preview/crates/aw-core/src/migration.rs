@@ -20,91 +20,91 @@ pub fn import_legacy(store: &mut Store, legacy_root: &Path) -> Result<MigrationR
     }
 
     let mut report = MigrationReport::default();
-    let mut settings = store.load_settings()?;
-    let options = legacy_root.join("cfg/options.ini");
-    if let Ok(content) = fs::read_to_string(&options) {
-        apply_legacy_settings(&content, &mut settings);
-        report.imported_settings = true;
-    }
-
-    let user_dirs = legacy_root.join("cfg/userdir.db");
-    if let Ok(content) = fs::read_to_string(user_dirs) {
-        match serde_json::from_str::<serde_json::Value>(&content) {
-            Ok(serde_json::Value::Array(entries)) => {
-                for (index, entry) in entries.into_iter().enumerate() {
-                    let Some(path) = entry.get("path").and_then(|value| value.as_str()) else {
-                        continue;
-                    };
-                    settings.source_locations.push(SourceLocation {
-                        id: format!("legacy-{index}"),
-                        kind: SourceKind::SteamEmulator,
-                        path: path.into(),
-                        enabled: true,
-                        notify: entry
-                            .get("notify")
-                            .and_then(|value| value.as_bool())
-                            .unwrap_or(true),
-                    });
-                    report.imported_sources += 1;
-                }
-            }
-            Ok(_) => report
-                .warnings
-                .push("Legacy userdir.db was not an array".into()),
-            Err(error) => report
-                .warnings
-                .push(format!("Could not parse legacy userdir.db: {error}")),
+    if !store.has_saved_settings()? {
+        let mut settings = store.load_settings()?;
+        let options = legacy_root.join("cfg/options.ini");
+        if let Ok(content) = fs::read_to_string(&options) {
+            apply_legacy_settings(&content, &mut settings);
+            report.imported_settings = true;
         }
-    }
-    if let Ok(content) = fs::read_to_string(legacy_root.join("cfg/exeList.db"))
-        && let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&content)
-    {
-        for entry in entries {
-            let Some(game_id) = entry.get("appid").and_then(|value| {
-                value
+
+        let user_dirs = legacy_root.join("cfg/userdir.db");
+        if let Ok(content) = fs::read_to_string(user_dirs) {
+            match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(serde_json::Value::Array(entries)) => {
+                    for (index, entry) in entries.into_iter().enumerate() {
+                        let Some(path) = entry.get("path").and_then(|value| value.as_str()) else {
+                            continue;
+                        };
+                        settings.source_locations.push(SourceLocation {
+                            id: format!("legacy-{index}"),
+                            kind: SourceKind::SteamEmulator,
+                            path: path.into(),
+                            enabled: true,
+                            notify: entry
+                                .get("notify")
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(true),
+                        });
+                        report.imported_sources += 1;
+                    }
+                }
+                Ok(_) => report
+                    .warnings
+                    .push("Legacy userdir.db was not an array".into()),
+                Err(error) => report
+                    .warnings
+                    .push(format!("Could not parse legacy userdir.db: {error}")),
+            }
+        }
+        if let Ok(content) = fs::read_to_string(legacy_root.join("cfg/exeList.db"))
+            && let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&content)
+        {
+            for entry in entries {
+                let Some(game_id) = entry.get("appid").and_then(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_owned)
+                        .or_else(|| value.as_i64().map(|id| id.to_string()))
+                }) else {
+                    continue;
+                };
+                let Some(executable) = entry
+                    .get("exe")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+                settings.game_launch_configs.insert(
+                    game_id,
+                    crate::GameLaunchConfig {
+                        executable: executable.into(),
+                        arguments: entry
+                            .get("args")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                    },
+                );
+            }
+        }
+        settings
+            .source_locations
+            .sort_by(|a, b| a.path.cmp(&b.path));
+        settings.source_locations.dedup_by(|a, b| a.path == b.path);
+        if let Ok(content) = fs::read_to_string(legacy_root.join("cfg/exclusion.db"))
+            && let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&content)
+        {
+            for item in items {
+                let id = item
                     .as_str()
                     .map(str::to_owned)
-                    .or_else(|| value.as_i64().map(|id| id.to_string()))
-            }) else {
-                continue;
-            };
-            let Some(executable) = entry
-                .get("exe")
-                .and_then(|value| value.as_str())
-                .filter(|value| !value.is_empty())
-            else {
-                continue;
-            };
-            settings.game_launch_configs.insert(
-                game_id,
-                crate::GameLaunchConfig {
-                    executable: executable.into(),
-                    arguments: entry
-                        .get("args")
-                        .and_then(|value| value.as_str())
-                        .unwrap_or_default()
-                        .into(),
-                },
-            );
-        }
-    }
-    settings
-        .source_locations
-        .sort_by(|a, b| a.path.cmp(&b.path));
-    settings.source_locations.dedup_by(|a, b| a.path == b.path);
-    store.save_settings(&settings)?;
-
-    if let Ok(content) = fs::read_to_string(legacy_root.join("cfg/exclusion.db"))
-        && let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&content)
-    {
-        for item in items {
-            let id = item
-                .as_str()
-                .map(str::to_owned)
-                .or_else(|| item.as_i64().map(|id| id.to_string()));
-            if let Some(id) = id.filter(|id| !settings.blacklisted_game_ids.contains(id)) {
-                settings.blacklisted_game_ids.push(id);
-                report.imported_blacklist_entries += 1;
+                    .or_else(|| item.as_i64().map(|id| id.to_string()));
+                if let Some(id) = id.filter(|id| !settings.blacklisted_game_ids.contains(id)) {
+                    settings.blacklisted_game_ids.push(id);
+                    report.imported_blacklist_entries += 1;
+                }
             }
         }
         store.save_settings(&settings)?;
@@ -645,5 +645,34 @@ mod tests {
 
         assert!(report.imported_settings);
         assert_eq!(store.load_settings().unwrap().username, "Imported User");
+    }
+
+    #[test]
+    fn a_new_migration_revision_preserves_saved_preview_preferences() {
+        let legacy = tempdir().unwrap();
+        fs::create_dir_all(legacy.path().join("cfg")).unwrap();
+        fs::write(
+            legacy.path().join("cfg/options.ini"),
+            "[general]\nusername=Old Legacy Name",
+        )
+        .unwrap();
+        let mut store = Store::open_memory().unwrap();
+        let mut settings = store.load_settings().unwrap();
+        settings.username = "Current Preview Name".into();
+        store.save_settings(&settings).unwrap();
+        store
+            .save_migration_report(
+                &format!("{}#parity-v2", legacy.path().to_string_lossy()),
+                &MigrationReport::default(),
+            )
+            .unwrap();
+
+        let report = import_legacy(&mut store, legacy.path()).unwrap();
+
+        assert!(!report.imported_settings);
+        assert_eq!(
+            store.load_settings().unwrap().username,
+            "Current Preview Name"
+        );
     }
 }

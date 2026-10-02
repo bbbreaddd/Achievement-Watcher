@@ -7,7 +7,12 @@ interface AchievementSourceChoice {
 
 export function completionPercent(game: GameSummary): number {
   if (game.total <= 0) return 0;
-  return Math.min(100, Math.max(0, (game.unlocked / game.total) * 100));
+  return progressPercent(game.unlocked, game.total);
+}
+
+export function progressPercent(current: number, maximum: number): number {
+  if (maximum <= 0) return 0;
+  return Math.min(100, Math.max(0, (current / maximum) * 100));
 }
 
 export function sourceLabel(source?: string): string {

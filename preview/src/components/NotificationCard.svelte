@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { convertFileSrc } from '@tauri-apps/api/core';
   import { onDestroy } from 'svelte';
+  import { imageUrl } from '../image-url';
+  import { progressPercent } from '../library';
   import type { NotificationEvent, NotificationRenderRequest } from '../types';
 
   export let event: NotificationEvent;
@@ -20,10 +21,6 @@
   let presetFrame: HTMLIFrameElement | undefined;
   let presetFailed = false;
   let replayTimer: ReturnType<typeof setTimeout> | undefined;
-
-  function imageUrl(value: string) {
-    return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\') ? convertFileSrc(value) : value;
-  }
 
   function heading() {
     if (event.eventKey.startsWith('playtime')) return 'Playtime tracking';
@@ -107,7 +104,7 @@
       <div class="notification-copy">
         <span>{heading()}</span>
         <strong>{event.observation.displayName ?? event.observation.achievementId}</strong>
-        {#if event.kind === 'progress' && event.observation.maxProgress > 0}<div class="notification-progress"><i style={`width:${Math.min(100, event.observation.currentProgress / event.observation.maxProgress * 100)}%`}></i><span>{event.observation.currentProgress} / {event.observation.maxProgress}</span></div>{/if}
+        {#if event.kind === 'progress' && event.observation.maxProgress > 0}<div class="notification-progress"><i style={`width:${progressPercent(event.observation.currentProgress, event.observation.maxProgress)}%`}></i><span>{event.observation.currentProgress} / {event.observation.maxProgress}</span></div>{/if}
         {#if showDescription}<p>{event.observation.description ?? ''}</p>{/if}
       </div>
     </div>

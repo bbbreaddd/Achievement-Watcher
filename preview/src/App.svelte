@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+  import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { open } from '@tauri-apps/plugin-dialog';
   import { onMount, tick } from 'svelte';
-  import { completionPercent, preferredAchievementSource, sourceDescription, sourceLabel } from './library';
+  import { completionPercent, preferredAchievementSource, progressPercent, sourceDescription, sourceLabel } from './library';
+  import { imageUrl, isLocalPath } from './image-url';
   import { operationMessage } from './operation';
   import { notificationStatusMessage } from './notification-status';
   import { cloneSettings, notificationPresentation, settingsChanged } from './settings';
@@ -98,11 +99,12 @@
   }
 
   function closeWindow() {
+    if (confirmation) return;
     if (savingSettings) {
       status = 'Wait for settings to finish saving before closing the window';
       return;
     }
-    const close = () => runWindowAction('close', () => appWindow.close());
+    const close = () => runWindowAction('close', () => invoke('close_main_window'));
     if (view === 'settings' && settingsDirty()) {
       requestConfirmation(
         'Discard settings changes?',
@@ -121,14 +123,6 @@
   function hasSteamAppId(game: GameSummary) {
     return /^\d+$/.test(game.gameId)
       && ['steam', 'steam_emulator', 'green_luma', 'watchdog_cache'].includes(game.sourceKind ?? '');
-  }
-
-  function isLocalPath(value: string) {
-    return value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\');
-  }
-
-  function imageUrl(value: string) {
-    return isLocalPath(value) ? convertFileSrc(value) : value;
   }
 
   function gameArtwork(game: GameSummary) {
@@ -522,7 +516,7 @@
   type OpenGameRequest = { sourceId: string; gameId: string; achievementId: string };
 
   async function consumeOpenGameRequest(fallback?: OpenGameRequest) {
-    const pending = await invoke<OpenGameRequest | null>('take_pending_open_game').catch(() => null);
+    const pending = await invoke<OpenGameRequest | null>('pending_open_game');
     const request = pending ?? fallback;
     if (!request) return;
     await refresh();
@@ -531,6 +525,7 @@
     if (game) {
       view = 'library';
       await openGame(game, request.achievementId);
+      if (pending) await invoke('acknowledge_pending_open_game', { request: pending });
     }
   }
 
@@ -663,7 +658,9 @@
     status = deep ? 'Searching local drives for achievement sources…' : status;
     try {
       const detected = await invoke<AppSettings['sourceLocations']>('detect_sources', { deep });
-      const normalizePath = (path: string) => path.replaceAll('\\', '/').toLowerCase();
+      const normalizePath = (path: string) => {
+        return capabilities.os === 'windows' ? path.replaceAll('\\', '/').toLowerCase() : path;
+      };
       const known = new Set(settings.sourceLocations.map((source) => normalizePath(source.path)));
       const additions = detected.filter((source) => !known.has(normalizePath(source.path)));
       settings.sourceLocations = [...settings.sourceLocations, ...additions];
@@ -700,9 +697,11 @@
     gameMenu = null;
     status = `Refreshing information for ${game.name}…`;
     try {
-      await invoke<number>('refresh_metadata', { gameId: game.gameId });
+      const updated = await invoke<number>('refresh_metadata', { gameId: game.gameId });
       await refresh();
-      status = `${game.name} information refreshed`;
+      status = updated > 0
+        ? `${game.name} information refreshed`
+        : `No new information was available for ${game.name}`;
     } catch (error) {
       status = `Metadata refresh failed: ${String(error)}`;
     }
@@ -1001,8 +1000,14 @@
   onMount(() => {
     let disposed = false;
     const cleanup: Array<() => void> = [];
-    void initializeApp();
-    void consumeOpenGameRequest();
+    const initialized = initializeApp();
+    let openRequestQueue = Promise.resolve();
+    const queueOpenGameRequest = (request?: OpenGameRequest) => {
+      openRequestQueue = openRequestQueue.then(async () => {
+        await initialized;
+        if (!startupError && !disposed) await consumeOpenGameRequest(request);
+      }).catch((error) => { status = `Could not open notification target: ${String(error)}`; });
+    };
     void appWindow.isMaximized().then((value) => maximized = value).catch(() => undefined);
     void appWindow.onResized(async () => {
       maximized = await appWindow.isMaximized().catch(() => maximized);
@@ -1020,16 +1025,20 @@
         console.error(`Could not register ${event}:`, error);
       }
     };
-    void register('library-changed', () => { void refresh().catch((error) => { status = `Library refresh failed: ${String(error)}`; }); });
+    void register('library-changed', () => {
+      void refresh().then(() => queueOpenGameRequest()).catch((error) => { status = `Library refresh failed: ${String(error)}`; });
+    });
     void register('notification-status', (({ payload }: { payload: { transport: string; success: boolean; error?: string } }) => {
-        status = notificationStatusMessage(payload, settings?.notificationMode ?? 'overlay_with_native_fallback');
+        status = notificationStatusMessage(payload);
       }) as Parameters<typeof listen>[1]);
     void register('operation-status', (({ payload }: { payload: OperationSnapshot }) => {
         operation = payload;
       }) as Parameters<typeof listen>[1]);
     void register('open-game', (({ payload }: { payload: OpenGameRequest }) => {
-        void consumeOpenGameRequest(payload);
+        queueOpenGameRequest(payload);
       }) as Parameters<typeof listen>[1]);
+    void register('main-close-requested', () => closeWindow());
+    queueOpenGameRequest();
     return () => {
       disposed = true;
       cleanup.splice(0).forEach((unlisten) => unlisten());
@@ -1088,7 +1097,7 @@
               {#each rows as achievement}
                 <li><article data-achievement-id={achievement.achievementId} class:highlight={highlightedAchievement === achievement.achievementId} class:unlocked={achievement.achieved} class:rare={(achievement.globalPercentHundredths ?? 10_001) <= 1000} class="achievement-row">
                   <div class="achievement-icon"><span><i class={achievement.achieved ? 'fas fa-trophy' : 'fas fa-lock'}></i></span>{#if achievement.icon}<img src={imageUrl(achievement.icon)} alt="" onerror={(event) => event.currentTarget.remove()} />{/if}</div>
-                  <div class="achievement-content"><h4>{achievement.displayName ?? achievement.achievementId}</h4><p>{achievement.hidden && !achievement.achieved && !settings?.showHidden && !revealHiddenForGame ? t('revealedOnceUnlocked', 'Details for this achievement will be revealed once unlocked') : (achievement.description ?? 'No description available.')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<div class="achievement-progress" role="progressbar" aria-label={`${achievement.displayName ?? achievement.achievementId} progress`} aria-valuemin="0" aria-valuemax={achievement.maxProgress} aria-valuenow={achievement.currentProgress}><i style={`width:${Math.min(100, achievement.currentProgress / achievement.maxProgress * 100)}%`}></i><span>{achievement.currentProgress} / {achievement.maxProgress}</span></div>{/if}</div>
+                  <div class="achievement-content"><h4>{achievement.displayName ?? achievement.achievementId}</h4><p>{achievement.hidden && !achievement.achieved && !settings?.showHidden && !revealHiddenForGame ? t('revealedOnceUnlocked', 'Details for this achievement will be revealed once unlocked') : (achievement.description ?? 'No description available.')}</p>{#if !achievement.achieved && achievement.maxProgress > 0}<div class="achievement-progress" role="progressbar" aria-label={`${achievement.displayName ?? achievement.achievementId} progress`} aria-valuemin="0" aria-valuemax={achievement.maxProgress} aria-valuenow={achievement.currentProgress}><i style={`width:${progressPercent(achievement.currentProgress, achievement.maxProgress)}%`}></i><span>{achievement.currentProgress} / {achievement.maxProgress}</span></div>{/if}</div>
                   <div class="achievement-state">{#if achievement.originSourceId}<span class="achievement-origin-label" title={sourceDescription(kindForSource(achievement.originSourceId))}><SourceBadge source={kindForSource(achievement.originSourceId)} origin />{sourceLabel(kindForSource(achievement.originSourceId))}</span>{/if}{#if achievement.trophyGrade}<i class={`trophy-grade ${achievement.trophyGrade} fas fa-trophy`} title={`${achievement.trophyGrade} trophy`}></i>{/if}{#if achievement.achieved}<strong>{t('unlocked', 'Unlocked')}</strong>{#if achievement.unlockTime > 0}<time title={new Date(achievement.unlockTime * 1000).toLocaleString()}>{formatUnlockTime(achievement.unlockTime)}</time>{/if}{:else}<span>{t('locked', 'Locked')}</span>{/if}{#if achievement.globalPercentHundredths !== undefined}<small title="Global unlock percentage reported by this achievement source"><i class="fas fa-gem"></i> {achievement.globalPercentHundredths === 0 ? '<0.01' : (achievement.globalPercentHundredths / 100).toFixed(2)}% {t('globalStat', 'of players have this')}</small>{/if}</div>
                 </article></li>
               {/each}

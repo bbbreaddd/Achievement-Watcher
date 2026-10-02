@@ -26,7 +26,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 use tauri::{
@@ -83,7 +83,7 @@ fn notification_mode_for_session(configured: NotificationMode) -> NotificationMo
     )
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct OpenGameRequest {
     source_id: String,
@@ -1409,9 +1409,7 @@ fn detect_sources_sync(deep: bool) -> Vec<aw_core::SourceLocation> {
     let mut seen = HashSet::new();
     candidates
         .into_iter()
-        .filter(|(kind, path)| {
-            seen.insert((*kind as u8, path.to_string_lossy().to_ascii_lowercase()))
-        })
+        .filter(|(kind, path)| seen.insert((*kind as u8, source_path_key(path))))
         .filter(|(_, path)| path.exists())
         .filter_map(|(kind, path)| {
             let location = aw_core::SourceLocation {
@@ -1562,32 +1560,31 @@ fn smart_find_source_roots() -> Vec<(aw_core::SourceKind, PathBuf)> {
 
 fn stable_source_id(kind: aw_core::SourceKind, path: &Path) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for byte in path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .to_lowercase()
-        .bytes()
-    {
+    for byte in source_path_key(path).bytes() {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("auto-{}-{hash:016x}", source_priority(kind))
 }
 
+fn source_path_key(path: &Path) -> String {
+    #[cfg(windows)]
+    let key = path.to_string_lossy().replace('\\', "/").to_lowercase();
+    #[cfg(not(windows))]
+    let key = path.to_string_lossy().into_owned();
+    if key.len() > 1 && !key.ends_with(":/") {
+        key.trim_end_matches('/').to_owned()
+    } else {
+        key
+    }
+}
+
 fn deduplicate_source_locations(settings: &mut AppSettings) -> bool {
     let before = settings.source_locations.len();
     let mut seen = HashSet::new();
-    settings.source_locations.retain(|source| {
-        seen.insert((
-            source.kind as u8,
-            source
-                .path
-                .to_string_lossy()
-                .replace('\\', "/")
-                .trim_end_matches('/')
-                .to_lowercase(),
-        ))
-    });
+    settings
+        .source_locations
+        .retain(|source| seen.insert((source.kind as u8, source_path_key(&source.path))));
     settings.source_locations.len() != before
 }
 
@@ -2599,15 +2596,19 @@ fn refresh_metadata_sync(
         .user_agent("Achievement-Watcher/0.1")
         .build();
     let mut updated = 0;
+    let mut fetch_errors = Vec::new();
     for (game_id, source_kind) in games {
         if source_kind == aw_core::SourceKind::Epic {
             match import_epic_metadata(&agent, &state, &game_id) {
                 Ok(true) => updated += 1,
                 Ok(false) => {}
-                Err(message) => notification_log(
-                    &state,
-                    &format!("Epic metadata skipped {game_id}: {message}"),
-                ),
+                Err(message) => {
+                    notification_log(
+                        &state,
+                        &format!("Epic metadata skipped {game_id}: {message}"),
+                    );
+                    fetch_errors.push(message);
+                }
             }
             continue;
         }
@@ -2615,10 +2616,13 @@ fn refresh_metadata_sync(
             match import_gog_metadata(&agent, &state, &game_id) {
                 Ok(true) => updated += 1,
                 Ok(false) => {}
-                Err(message) => notification_log(
-                    &state,
-                    &format!("GOG metadata skipped {game_id}: {message}"),
-                ),
+                Err(message) => {
+                    notification_log(
+                        &state,
+                        &format!("GOG metadata skipped {game_id}: {message}"),
+                    );
+                    fetch_errors.push(message);
+                }
             }
             continue;
         }
@@ -2642,9 +2646,13 @@ fn refresh_metadata_sync(
         };
         if needs_game {
             let url = format!("https://store.steampowered.com/api/appdetails?appids={game_id}");
-            if let Ok(response) = agent.get(&url).call()
-                && let Ok(value) = response.into_json::<serde_json::Value>()
-                && let Some((name, icon)) = steam_app_details(&value, &game_id)
+            let game_details = agent
+                .get(&url)
+                .call()
+                .map_err(error)
+                .and_then(|response| response.into_json::<serde_json::Value>().map_err(error));
+            if let Ok(value) = game_details.as_ref()
+                && let Some((name, icon)) = steam_app_details(value, &game_id)
             {
                 let cached_icon = icon.as_deref().and_then(|icon| {
                     artwork::cache_image(
@@ -2670,30 +2678,46 @@ fn refresh_metadata_sync(
                     .map_err(error)?;
                 updated += 1;
             }
+            if let Err(message) = game_details {
+                notification_log(
+                    &state,
+                    &format!("Steam Store metadata skipped {game_id}: {message}"),
+                );
+                fetch_errors.push(message);
+            }
         }
         if needs_achievements && !steam_fallback_paused(&state) {
             match import_community_schema(&agent, &state, &game_id) {
                 Ok(true) => updated += 1,
                 Ok(false) => {}
-                Err(message) => notification_log(
-                    &state,
-                    &format!("Steam achievement metadata skipped {game_id}: {message}"),
-                ),
+                Err(message) => {
+                    notification_log(
+                        &state,
+                        &format!("Steam achievement metadata skipped {game_id}: {message}"),
+                    );
+                    fetch_errors.push(message);
+                }
             }
         }
         if needs_global_percentages {
             match import_global_percentages(&agent, &state, &game_id) {
                 Ok(true) => updated += 1,
                 Ok(false) => {}
-                Err(message) => notification_log(
-                    &state,
-                    &format!("Steam rarity metadata skipped {game_id}: {message}"),
-                ),
+                Err(message) => {
+                    notification_log(
+                        &state,
+                        &format!("Steam rarity metadata skipped {game_id}: {message}"),
+                    );
+                    fetch_errors.push(message);
+                }
             }
         }
     }
     if updated > 0 {
         let _ = app.emit("library-changed", ());
+    }
+    if force_refresh && updated == 0 && !fetch_errors.is_empty() {
+        return Err(fetch_errors.join("; "));
     }
     Ok(updated)
 }
@@ -3406,8 +3430,40 @@ fn open_notification_game_sync(app: &AppHandle, state: &State<'_, AppState>) -> 
 }
 
 #[tauri::command]
-fn take_pending_open_game(state: State<'_, AppState>) -> CommandResult<Option<OpenGameRequest>> {
-    Ok(state.pending_open_game.lock().map_err(lock_error)?.take())
+fn pending_open_game(state: State<'_, AppState>) -> CommandResult<Option<OpenGameRequest>> {
+    Ok(state.pending_open_game.lock().map_err(lock_error)?.clone())
+}
+
+#[tauri::command]
+fn acknowledge_pending_open_game(
+    state: State<'_, AppState>,
+    request: OpenGameRequest,
+) -> CommandResult<()> {
+    let mut pending = state.pending_open_game.lock().map_err(lock_error)?;
+    if pending.as_ref() == Some(&request) {
+        *pending = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn close_main_window(app: AppHandle) -> CommandResult<()> {
+    let close_to_tray = app
+        .state::<AppState>()
+        .store
+        .lock()
+        .map_err(lock_error)?
+        .load_settings()
+        .map_err(error)?
+        .close_to_tray;
+    if close_to_tray {
+        if let Some(window) = app.get_webview_window("main") {
+            window.destroy().map_err(error)?;
+        }
+    } else {
+        app.exit(0);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3854,15 +3910,32 @@ fn configure_watcher(
     settings: &AppSettings,
 ) -> CommandResult<()> {
     let handle = app.clone();
+    let watch_errors = Arc::new(Mutex::new(Vec::<String>::new()));
+    let callback_watch_errors = Arc::clone(&watch_errors);
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let Ok(event) = event else { return };
+        let event = match event {
+            Ok(event) => event,
+            Err(error) => {
+                let state = handle.state::<AppState>();
+                watcher_heartbeat(&state, "File watcher", true, false, Err(error.to_string()));
+                return;
+            }
+        };
         if !matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
             return;
         }
         for path in event.paths {
             let state = handle.state::<AppState>();
             let result = process_path(&handle, &state, &path, false);
-            watcher_heartbeat(&state, "File watcher", true, true, result.clone());
+            let health_result = result.clone().and_then(|_| {
+                let errors = callback_watch_errors.lock().map_err(lock_error)?;
+                if errors.is_empty() {
+                    Ok(())
+                } else {
+                    Err(errors.join("; "))
+                }
+            });
+            watcher_heartbeat(&state, "File watcher", true, true, health_result);
             if result.is_ok() {
                 let _ = dispatch_pending(&handle, &state);
                 let _ = handle.emit("library-changed", ());
@@ -3875,19 +3948,24 @@ fn configure_watcher(
         location.enabled && source_kind_enabled(settings, location.kind) && location.path.exists()
     }) {
         if let Err(watch_error) = watcher.watch(&location.path, RecursiveMode::Recursive) {
-            notification_log(
-                state,
-                &format!(
-                    "Could not monitor {}: {watch_error}",
-                    location.path.display()
-                ),
+            let message = format!(
+                "Could not monitor {}: {watch_error}",
+                location.path.display()
             );
+            notification_log(state, &message);
+            watch_errors.lock().map_err(lock_error)?.push(message);
         } else {
             watching = true;
         }
     }
     *state.watcher.lock().map_err(lock_error)? = Some(watcher);
-    watcher_heartbeat(state, "File watcher", watching, false, Ok(()));
+    let errors = watch_errors.lock().map_err(lock_error)?;
+    let health_result = if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    };
+    watcher_heartbeat(state, "File watcher", watching || !errors.is_empty(), false, health_result);
     Ok(())
 }
 
@@ -4895,7 +4973,9 @@ pub fn run() {
             current_notification,
             close_notification,
             open_notification_game,
-            take_pending_open_game,
+            pending_open_game,
+            acknowledge_pending_open_game,
+            close_main_window,
             report_notification_error,
             capture_screenshot,
         ])
@@ -4909,21 +4989,8 @@ pub fn run() {
             } = event
                 && label == "main"
             {
-                let close_to_tray = app
-                    .state::<AppState>()
-                    .store
-                    .lock()
-                    .ok()
-                    .and_then(|store| store.load_settings().ok())
-                    .is_none_or(|settings| settings.close_to_tray);
                 api.prevent_close();
-                if close_to_tray {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.destroy();
-                    }
-                } else {
-                    app.exit(0);
-                }
+                let _ = app.emit_to("main", "main-close-requested", ());
             }
         });
 }
@@ -5041,6 +5108,7 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn source_identity_ignores_windows_path_spelling() {
         assert_eq!(
@@ -5069,6 +5137,37 @@ mod tests {
         assert!(deduplicate_source_locations(&mut settings));
         assert_eq!(settings.source_locations.len(), 1);
         assert_eq!(settings.source_locations[0].id, "first");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn source_identity_preserves_unix_path_case() {
+        let upper = Path::new("/home/deck/Saves");
+        let lower = Path::new("/home/deck/saves");
+        assert_ne!(
+            stable_source_id(SourceKind::Steam, upper),
+            stable_source_id(SourceKind::Steam, lower)
+        );
+        let mut settings = AppSettings {
+            source_locations: vec![
+                SourceLocation {
+                    id: "upper".into(),
+                    kind: SourceKind::Steam,
+                    path: upper.into(),
+                    enabled: true,
+                    notify: true,
+                },
+                SourceLocation {
+                    id: "lower".into(),
+                    kind: SourceKind::Steam,
+                    path: lower.into(),
+                    enabled: true,
+                    notify: true,
+                },
+            ],
+            ..AppSettings::default()
+        };
+        assert!(!deduplicate_source_locations(&mut settings));
     }
 
     #[test]

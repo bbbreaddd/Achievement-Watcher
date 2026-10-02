@@ -63,7 +63,10 @@ try {
 
   if ($CheckOnly) {
     npm run check
-    & cargo check -p achievement-watcher-preview
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & cargo test --workspace
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & cargo clippy --workspace --all-targets --all-features -- -D warnings
     exit $LASTEXITCODE
   }
 

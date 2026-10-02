@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+  import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import type { AchievementObservation, AppSettings, GameSummary } from './types';
+  import { imageUrl } from './image-url';
 
   let game: GameSummary | null = null;
   let achievements: AchievementObservation[] = [];
@@ -12,9 +13,6 @@
   let direction = 1;
   let scale = 100;
 
-  function imageUrl(value: string) {
-    return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith('\\\\') ? convertFileSrc(value) : value;
-  }
   const window = getCurrentWindow();
 
   function sortedRows() {
